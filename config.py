@@ -6,28 +6,22 @@ from pinecone import Pinecone
 load_dotenv()
 
 
-NEO4J_URI      = os.getenv("NEO4J_URI")
+NEO4J_URI = os.getenv("NEO4J_URI")
 NEO4J_USERNAME = os.getenv("NEO4J_USERNAME", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 
-PINECONE_API_KEY    = os.getenv("PINECONE_API_KEY")
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
 
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
-LLM_PROVIDER      = os.getenv("LLM_PROVIDER", "anthropic")   # "anthropic" | "openai"
-
-
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic") 
 EMBEDDING_MODEL      = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "1536"))
-
-
 MAX_CHUNK_TOKENS = int(os.getenv("MAX_CHUNK_TOKENS", "800"))
 MAX_HIERARCHY_LEVELS = int(os.getenv("MAX_HIERARCHY_LEVELS", "8"))
 CACHE_DIR = os.getenv("CACHE_DIR", "cache")
-
-
 
 _neo4j_driver = None
 _pinecone_index = None
