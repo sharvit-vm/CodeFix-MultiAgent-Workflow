@@ -1,66 +1,66 @@
 from pathlib import Path
 from typing import Optional
 
-# ── Extension → language map ───────────────────────────────────────────────────
+
 
 EXTENSION_MAP: dict[str, str] = {
-    # Python
+
     ".py": "python",
-    # JavaScript
+
     ".js": "javascript",
     ".mjs": "javascript",
     ".cjs": "javascript",
-    # TypeScript
+
     ".ts": "typescript",
     ".tsx": "typescript",
-    # Go
+
     ".go": "go",
-    # Java
+
     ".java": "java",
-    # Rust
+
     ".rs": "rust",
-    # C / C++
+
     ".c": "c",
     ".h": "c",
     ".cpp": "cpp",
     ".cc": "cpp",
     ".cxx": "cpp",
     ".hpp": "cpp",
-    # Ruby
+
     ".rb": "ruby",
-    # PHP
+
     ".php": "php",
-    # C#
+
     ".cs": "csharp",
-    # Kotlin
+
     ".kt": "kotlin",
     ".kts": "kotlin",
-    # Swift
+
     ".swift": "swift",
-    # Scala
+
     ".scala": "scala",
-    # Shell
+
     ".sh": "shell",
     ".bash": "shell",
-    # YAML / JSON / TOML / config (no AST parsing, just stored)
+
     ".yaml": "yaml",
     ".yml": "yaml",
     ".json": "json",
     ".toml": "toml",
     ".env": "env",
-    # Markdown / docs
+
     ".md": "markdown",
     ".mdx": "markdown",
-    # SQL
+
     ".sql": "sql",
-    # HTML / CSS (limited parsing)
+
     ".html": "html",
     ".htm": "html",
     ".css": "css",
     ".scss": "scss",
 }
 
-# Languages that tree-sitter can parse (we have a parser for these)
+
 PARSEABLE_LANGUAGES = {
     "python",
     "javascript",
@@ -69,7 +69,7 @@ PARSEABLE_LANGUAGES = {
     "java",
 }
 
-# Folders to always skip during scanning
+
 IGNORED_DIRS = {
     ".git",
     ".github",
@@ -88,14 +88,14 @@ IGNORED_DIRS = {
     ".pytest_cache",
     ".mypy_cache",
     ".ruff_cache",
-    "target",          # Rust/Java build output
-    "vendor",          # Go vendor directory
+    "target",
+    "vendor",
     ".idea",
     ".vscode",
     "*.egg-info",
 }
 
-# File extensions to always skip
+
 IGNORED_EXTENSIONS = {
     ".pyc",
     ".pyo",
@@ -187,7 +187,7 @@ def get_language_display_name(language: str) -> str:
 
 
 if __name__ == "__main__":
-    # Quick sanity check
+
     test_files = [
         "src/main.py",
         "src/index.ts",

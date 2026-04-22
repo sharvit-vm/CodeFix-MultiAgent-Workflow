@@ -16,7 +16,7 @@ PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic") 
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")
 EMBEDDING_MODEL      = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "1536"))
 MAX_CHUNK_TOKENS = int(os.getenv("MAX_CHUNK_TOKENS", "800"))
