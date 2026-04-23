@@ -15,7 +15,7 @@ This repository contains the data ingestion pipeline that powers the KB Search, 
   - Built `phases/file_analysis.py` along with AST parsers (e.g., `parsers/python_parser.py`).
   - Safely slices valid files to extract precise line-bound functions, classes, and import dependencies across multiple languages simultaneously.
   - Aggregates and physically caches structural AST data locally for fast retrieval.
-- [ ] **Phase 3: LLM Summaries** *(Working on right now)*
+- [x] **Phase 3: LLM Summaries**
   - Extracting the AST context and querying Large Language Models to generate exact, token-efficient summaries/purposes of every file's logic without loading heavy source code.
 - [ ] **Phase 4: Hierarchy Building**
   - Grouping files bottom-up into nested folder nodes (Level 1 to Level 8) and aggregating directory-level context. 
