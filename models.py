@@ -1,12 +1,6 @@
-
-
 from __future__ import annotations
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
-
-
-
-
 class ParameterInfo(BaseModel):
     name: str
     type_hint: Optional[str] = None
@@ -49,17 +43,10 @@ class FileInfo(BaseModel):
     functions: List[FunctionInfo] = Field(default_factory=list)
     classes: List[ClassInfo] = Field(default_factory=list)
     total_lines: int = 0
-
-
     summary: Optional[str] = None
     purpose: Optional[str] = None
-
-
     parse_error: Optional[str] = None
     llm_processed: bool = False
-
-
-
 
 class LevelNode(BaseModel):
     path: str
@@ -72,9 +59,6 @@ class LevelNode(BaseModel):
     purpose: Optional[str] = None
     parent_path: Optional[str] = None
 
-
-
-
 class RepoSummary(BaseModel):
     repo_path: str
     knowledge_id: str
@@ -85,26 +69,18 @@ class RepoSummary(BaseModel):
     purpose: Optional[str] = None
     summary: Optional[str] = None
 
-
-
-
 class PipelineState(BaseModel):
     repo_path: str
     knowledge_id: str
     org_id: Optional[str] = None
-
-
     files: List[FileInfo] = Field(default_factory=list)
     hierarchy: Dict[str, LevelNode] = Field(default_factory=dict)
     repo_summary: Optional[RepoSummary] = None
-
-
     scan_complete: bool = False
     file_analysis_complete: bool = False
     llm_analysis_complete: bool = False
     hierarchy_complete: bool = False
     neo4j_complete: bool = False
     vector_complete: bool = False
-
     class Config:
         arbitrary_types_allowed = True
