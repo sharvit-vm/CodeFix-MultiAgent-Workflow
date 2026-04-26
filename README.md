@@ -17,7 +17,7 @@ This repository contains the data ingestion pipeline that powers the KB Search, 
   - Aggregates and physically caches structural AST data locally for fast retrieval.
 - [x] **Phase 3: LLM Summaries**
   - Extracting the AST context and querying Large Language Models to generate exact, token-efficient summaries/purposes of every file's logic without loading heavy source code.
-- [ ] **Phase 4: Hierarchy Building**
+- [x] **Phase 4: Hierarchy Building**
   - Grouping files bottom-up into nested folder nodes (Level 1 to Level 8) and aggregating directory-level context. 
 - [ ] **Phase 5: Neo4j Ingestion**
   - Executing Cypher queries to create massive structural relationships (`[:CALLS]`, `[:IMPORTS]`, `[:BELONGS_TO]`) for exact Agent blast-radius detection.
