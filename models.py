@@ -31,11 +31,27 @@ class ImportInfo(BaseModel):
     module: Optional[str] = None
     is_local: bool = False
 
+class ImportedSymbol(BaseModel):
+    name: str
+    module: Optional[str] = None
+    alias: Optional[str] = None
+    is_function: bool = False
+    is_class: bool = False
+
+class ExportedSymbol(BaseModel):
+    name: str
+    type: str  # "function" or "class"
+    is_public: bool = True
+
 class FileInfo(BaseModel):
     path: str
     absolute_path: str
     language: str
     imports: List[ImportInfo] = Field(default_factory=list)
+    imported_functions: List[ImportedSymbol] = Field(default_factory=list)
+    imported_classes: List[ImportedSymbol] = Field(default_factory=list)
+    exported_functions: List[ExportedSymbol] = Field(default_factory=list)
+    exported_classes: List[ExportedSymbol] = Field(default_factory=list)
     functions: List[FunctionInfo] = Field(default_factory=list)
     classes: List[ClassInfo] = Field(default_factory=list)
     total_lines: int = 0

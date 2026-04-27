@@ -23,6 +23,13 @@ CACHE_DIR = os.getenv("CACHE_DIR", "cache")
 
 _neo4j_driver = None
 _pinecone_index = None
+from langchain_openai import ChatOpenAI
+
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0,
+    api_key=OPENAI_API_KEY,
+)
 
 def get_neo4j_driver():
     """Returns a singleton Neo4j driver. Call driver.close() when done."""

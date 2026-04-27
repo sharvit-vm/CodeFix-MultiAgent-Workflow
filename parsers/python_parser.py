@@ -7,7 +7,7 @@ from typing import List, Optional
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
 
-from models import FileInfo, FunctionInfo, ClassInfo, ImportInfo, ParameterInfo
+from models import FileInfo, FunctionInfo, ClassInfo, ImportInfo, ParameterInfo, ImportedSymbol, ExportedSymbol
 from parsers.base_parser import BaseParser
 
 PY_LANGUAGE = Language(tspython.language())
@@ -25,6 +25,8 @@ class PythonParser(BaseParser):
             file_info.functions = self.extract_functions(source, tree)
             file_info.classes   = self.extract_classes(source, tree)
             file_info.imports   = self.extract_imports(source, tree)
+            file_info.imported_functions, file_info.imported_classes = self.extract_imported_symbols(source, tree)
+            file_info.exported_functions, file_info.exported_classes = self.extract_exported_symbols(source, tree, file_info)
 
             class_map = {c.name: c for c in file_info.classes}
             for func in file_info.functions:
@@ -173,6 +175,121 @@ class PythonParser(BaseParser):
                 is_local = raw.startswith("from .") or raw.startswith("from ..")
                 imports.append(ImportInfo(raw=raw, module=module, is_local=is_local))
         return imports
+
+    def extract_imported_symbols(self, source: bytes, tree) -> tuple[List[ImportedSymbol], List[ImportedSymbol]]:
+        imported_functions = []
+        imported_classes = []
+
+        for node in tree.root_node.children:
+            if node.type != "import_from_statement":
+                continue
+
+            module_node = self._get_child_by_type(node, "dotted_name")
+            module = self._get_node_text(module_node, source) if module_node else None
+
+            if any(c.type == "wildcard_import" for c in node.children):
+                continue
+
+            import_list = self._get_child_by_type(node, "import_list")
+            name_nodes = import_list.children if import_list else node.children
+
+            for child in name_nodes:
+                name = None
+                alias = None
+
+                if child.type in ("identifier", "dotted_name"):
+                    raw_name = self._get_node_text(child, source)
+                    # Skip the module name (already captured as first dotted_name child)
+                    if module and raw_name == module:
+                        continue
+                    # For dotted names used as import targets, take the last part
+                    name = raw_name.split(".")[-1] if "." in raw_name else raw_name
+                elif child.type == "aliased_import":
+                    names = [c for c in child.children if c.type in ("identifier", "dotted_name")]
+                    if names:
+                        raw = self._get_node_text(names[0], source)
+                        name = raw.split(".")[-1] if "." in raw else raw
+                    if len(names) > 1:
+                        alias = self._get_node_text(names[1], source)
+                else:
+                    continue
+
+                if not name:
+                    continue
+
+                is_class = bool(name) and name[0].isalpha() and name[0].isupper()
+                symbol = ImportedSymbol(
+                    name=name,
+                    module=module,
+                    alias=alias,
+                    is_function=not is_class,
+                    is_class=is_class
+                )
+
+                if is_class:
+                    imported_classes.append(symbol)
+                else:
+                    imported_functions.append(symbol)
+
+        return imported_functions, imported_classes
+
+    def extract_exported_symbols(self, source: bytes, tree, file_info: FileInfo) -> tuple[List[ExportedSymbol], List[ExportedSymbol]]:
+        exported_functions = []
+        exported_classes = []
+
+        all_names = self._extract_all_names(source, tree)
+
+        for func in file_info.functions:
+            if func.is_method:
+                continue
+            name = func.name
+            if all_names is not None:
+                is_exported = name in all_names
+            else:
+                if name.startswith("__") and name.endswith("__"):
+                    is_exported = True
+                elif name.startswith("_"):
+                    is_exported = False
+                else:
+                    is_exported = True
+
+            if is_exported:
+                exported_functions.append(ExportedSymbol(name=name, type="function", is_public=True))
+
+        for cls in file_info.classes:
+            name = cls.name
+            if all_names is not None:
+                is_exported = name in all_names
+            else:
+                if name.startswith("__") and name.endswith("__"):
+                    is_exported = True
+                elif name.startswith("_"):
+                    is_exported = False
+                else:
+                    is_exported = True
+
+            if is_exported:
+                exported_classes.append(ExportedSymbol(name=name, type="class", is_public=True))
+
+        return exported_functions, exported_classes
+
+    def _extract_all_names(self, source: bytes, tree) -> Optional[set]:
+        for node in tree.root_node.children:
+            if node.type == "assignment":
+                left = node.children[0] if node.children else None
+                if left and left.type == "identifier":
+                    if self._get_node_text(left, source) == "__all__":
+                        right = node.children[-1] if len(node.children) > 1 else None
+                        if right and right.type in ("list", "tuple", "set"):
+                            names = set()
+                            for child in right.children:
+                                if child.type == "string":
+                                    val = self._get_node_text(child, source).strip("'\"")
+                                    names.add(val)
+                                elif child.type == "identifier":
+                                    names.add(self._get_node_text(child, source))
+                            return names if names else set()
+        return None
 
     def _get_child_by_type(self, node, type_name: str):
         for child in node.children:

@@ -144,9 +144,10 @@ def build_hierarchy(state: PipelineState) -> PipelineState:
             hierarchy[parent_path] = node
         current_paths = set(parent_children.keys())
     print("\n[Hierarchy] Generating repo summary...")
+    max_actual_level = max((n.level for n in hierarchy.values()), default=1)
     top_summaries = [
         n.purpose for n in hierarchy.values()
-        if n.level >= MAX_HIERARCHY_LEVELS - 1 and n.purpose
+        if n.level == max_actual_level and n.purpose
     ][:8]
     repo_summary, repo_purpose = summarize_folder(
         state.repo_path,
