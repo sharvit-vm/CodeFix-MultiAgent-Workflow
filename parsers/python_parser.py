@@ -12,7 +12,6 @@ from parsers.base_parser import BaseParser
 
 PY_LANGUAGE = Language(tspython.language())
 
-
 class PythonParser(BaseParser):
 
     def __init__(self):
@@ -27,7 +26,6 @@ class PythonParser(BaseParser):
             file_info.classes   = self.extract_classes(source, tree)
             file_info.imports   = self.extract_imports(source, tree)
 
-
             class_map = {c.name: c for c in file_info.classes}
             for func in file_info.functions:
                 if func.is_method and func.class_name and func.class_name in class_map:
@@ -37,8 +35,6 @@ class PythonParser(BaseParser):
             file_info.parse_error = str(e)
 
         return file_info
-
-
 
     def extract_functions(self, source: bytes, tree) -> List[FunctionInfo]:
         functions = []
@@ -130,8 +126,6 @@ class PythonParser(BaseParser):
         for child in node.children:
             self._collect_calls(child, source, calls)
 
-
-
     def extract_classes(self, source: bytes, tree) -> List[ClassInfo]:
         classes = []
         for node in tree.root_node.children:
@@ -166,8 +160,6 @@ class PythonParser(BaseParser):
                     bases.append(self._get_node_text(child, source))
         return bases
 
-
-
     def extract_imports(self, source: bytes, tree) -> List[ImportInfo]:
         imports = []
         for node in tree.root_node.children:
@@ -181,8 +173,6 @@ class PythonParser(BaseParser):
                 is_local = raw.startswith("from .") or raw.startswith("from ..")
                 imports.append(ImportInfo(raw=raw, module=module, is_local=is_local))
         return imports
-
-
 
     def _get_child_by_type(self, node, type_name: str):
         for child in node.children:

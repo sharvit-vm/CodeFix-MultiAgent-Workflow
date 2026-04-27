@@ -17,7 +17,6 @@ from config import CACHE_DIR
 
 _parser_cache: dict = {}
 
-
 def get_parser(language: str):
     if language in _parser_cache:
         return _parser_cache[language]
@@ -49,16 +48,13 @@ def get_parser(language: str):
 
     return parser
 
-
 def get_file_cache_dir(state: PipelineState) -> Path:
     d = Path(CACHE_DIR) / state.knowledge_id / "file_analysis"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
-
 def get_cache_key(file_path: str) -> str:
     return file_path.replace("/", "__").replace("\\", "__") + ".json"
-
 
 def load_file_cache(cache_dir: Path, file_path: str) -> Optional[FileInfo]:
     cache_file = cache_dir / get_cache_key(file_path)
@@ -67,12 +63,10 @@ def load_file_cache(cache_dir: Path, file_path: str) -> Optional[FileInfo]:
             return FileInfo(**json.load(f))
     return None
 
-
 def save_file_cache(cache_dir: Path, file_info: FileInfo):
     cache_file = cache_dir / get_cache_key(file_info.path)
     with open(cache_file, "w") as f:
         json.dump(file_info.model_dump(), f, indent=2)
-
 
 def analyze_files(state: PipelineState) -> PipelineState:
     if state.file_analysis_complete:
@@ -150,7 +144,6 @@ def analyze_files(state: PipelineState) -> PipelineState:
     state.files = updated_files
     state.file_analysis_complete = True
     return state
-
 
 if __name__ == "__main__":
     import sys

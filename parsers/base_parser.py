@@ -6,7 +6,6 @@ from abc import ABC, abstractmethod
 from typing import List
 from models import FileInfo, FunctionInfo, ClassInfo, ImportInfo
 
-
 class BaseParser(ABC):
     """
     Every language parser inherits this.

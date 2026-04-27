@@ -79,7 +79,6 @@ def analyze_with_llm(state: PipelineState) -> PipelineState:
     state.llm_analysis_complete = True
     return state
 
-
 if __name__ == "__main__":
     import sys, uuid
     from phases.scanner import scan_repo

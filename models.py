@@ -5,7 +5,6 @@ class ParameterInfo(BaseModel):
     name: str
     type_hint: Optional[str] = None
 
-
 class FunctionInfo(BaseModel):
     name: str
     file_path: str
@@ -18,7 +17,6 @@ class FunctionInfo(BaseModel):
     is_method: bool = False
     class_name: Optional[str] = None
 
-
 class ClassInfo(BaseModel):
     name: str
     file_path: str
@@ -28,12 +26,10 @@ class ClassInfo(BaseModel):
     base_classes: List[str] = Field(default_factory=list)
     summary: Optional[str] = None
 
-
 class ImportInfo(BaseModel):
     raw: str
     module: Optional[str] = None
     is_local: bool = False
-
 
 class FileInfo(BaseModel):
     path: str

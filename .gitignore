@@ -1,3 +1,9 @@
 .env
 /cache
 __pycache__/
+parsers/go_parser.py
+parsers/java_parser.py
+parsers/typescript_parser.py
+strip.py
+*.md
+!README.md

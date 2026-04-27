@@ -1,8 +1,6 @@
 from pathlib import Path
 from typing import Optional
 
-
-
 EXTENSION_MAP: dict[str, str] = {
 
     ".py": "python",
@@ -60,7 +58,6 @@ EXTENSION_MAP: dict[str, str] = {
     ".scss": "scss",
 }
 
-
 PARSEABLE_LANGUAGES = {
     "python",
     "javascript",
@@ -68,7 +65,6 @@ PARSEABLE_LANGUAGES = {
     "go",
     "java",
 }
-
 
 IGNORED_DIRS = {
     ".git",
@@ -94,7 +90,6 @@ IGNORED_DIRS = {
     ".vscode",
     "*.egg-info",
 }
-
 
 IGNORED_EXTENSIONS = {
     ".pyc",
@@ -125,7 +120,6 @@ IGNORED_EXTENSIONS = {
     ".DS_Store",
 }
 
-
 def detect_language(file_path: str) -> Optional[str]:
     """
     Returns the language string for a given file path based on its extension.
@@ -135,7 +129,6 @@ def detect_language(file_path: str) -> Optional[str]:
     if ext in IGNORED_EXTENSIONS:
         return None
     return EXTENSION_MAP.get(ext, None)
-
 
 def is_parseable(language: Optional[str]) -> bool:
     """
@@ -147,13 +140,11 @@ def is_parseable(language: Optional[str]) -> bool:
         return False
     return language in PARSEABLE_LANGUAGES
 
-
 def should_skip_dir(dir_name: str) -> bool:
     """
     Returns True if a directory should be skipped entirely during scanning.
     """
     return dir_name in IGNORED_DIRS or dir_name.startswith(".")
-
 
 def get_language_display_name(language: str) -> str:
     """
@@ -184,7 +175,6 @@ def get_language_display_name(language: str) -> str:
         "markdown": "Markdown",
     }
     return display_names.get(language, language.capitalize())
-
 
 if __name__ == "__main__":
 

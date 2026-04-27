@@ -5,14 +5,12 @@ from pinecone import Pinecone
 
 load_dotenv()
 
-
 NEO4J_URI = os.getenv("NEO4J_URI")
 NEO4J_USERNAME = os.getenv("NEO4J_USERNAME", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
-
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -26,7 +24,6 @@ CACHE_DIR = os.getenv("CACHE_DIR", "cache")
 _neo4j_driver = None
 _pinecone_index = None
 
-
 def get_neo4j_driver():
     """Returns a singleton Neo4j driver. Call driver.close() when done."""
     global _neo4j_driver
@@ -39,7 +36,6 @@ def get_neo4j_driver():
         )
     return _neo4j_driver
 
-
 def get_pinecone_index():
     """Returns a singleton Pinecone index client."""
     global _pinecone_index
@@ -49,7 +45,6 @@ def get_pinecone_index():
         pc = Pinecone(api_key=PINECONE_API_KEY)
         _pinecone_index = pc.Index(PINECONE_INDEX_NAME)
     return _pinecone_index
-
 
 def verify_connections():
     """
@@ -68,7 +63,6 @@ def verify_connections():
     print(f"  Pinecone connected — total vectors: {stats['total_vector_count']}")
 
     print("All connections verified.\n")
-
 
 if __name__ == "__main__":
     verify_connections()

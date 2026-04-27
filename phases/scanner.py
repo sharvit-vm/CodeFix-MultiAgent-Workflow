@@ -14,18 +14,15 @@ from parsers.language_detector import detect_language, should_skip_dir, is_parse
 from config import CACHE_DIR
 SCAN_CACHE_FILE = "scan_result.json"
 
-
 def _cache_path(state: PipelineState) -> Path:
     cache_dir = Path(CACHE_DIR) / state.knowledge_id
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir / SCAN_CACHE_FILE
 
-
 def _file_hash(file_path: str) -> str:
     """MD5 hash of file contents — used as cache key."""
     with open(file_path, "rb") as f:
         return hashlib.md5(f.read()).hexdigest()
-
 
 def scan_repo(state: PipelineState) -> PipelineState:
     """
@@ -36,7 +33,6 @@ def scan_repo(state: PipelineState) -> PipelineState:
     """
     cache_file = _cache_path(state)
 
-
     if cache_file.exists():
         print(f"[Scanner] Cache found at {cache_file} — loading.")
         with open(cache_file) as f:
@@ -45,7 +41,6 @@ def scan_repo(state: PipelineState) -> PipelineState:
         state.scan_complete = True
         print(f"[Scanner] Loaded {len(state.files)} files from cache.\n")
         return state
-
 
     print(f"[Scanner] Scanning repo: {state.repo_path}")
     repo_root = Path(state.repo_path).resolve()
@@ -91,7 +86,6 @@ def scan_repo(state: PipelineState) -> PipelineState:
         parseable_marker = "✓ parseable" if is_parseable(lang) else "  stored only"
         print(f"    {lang:<20} {count:>4} files   {parseable_marker}")
 
-
     with open(cache_file, "w") as f:
         json.dump([fi.model_dump() for fi in discovered], f, indent=2)
     print(f"\n[Scanner] Cached to {cache_file}")
@@ -100,14 +94,12 @@ def scan_repo(state: PipelineState) -> PipelineState:
     state.scan_complete = True
     return state
 
-
 def _count_lines(file_path: str) -> int:
     try:
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             return sum(1 for _ in f)
     except Exception:
         return 0
-
 
 if __name__ == "__main__":
     import sys
