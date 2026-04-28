@@ -5,15 +5,18 @@ Reads all cache folder data from Phases 1-4 and writes to Neo4j.
 Nodes:
   KnowledgeNode — one per repo ingestion; also holds repo summary fields
                   (repo_path, org_id, purpose, summary, total_files, languages)
-  FileNode      — one per file
-  FunctionNode  — one per function
+  FileNode      — one per file (includes parse_error, function_count, class_count)
+  FunctionNode  — one per function (includes param_types)
   ClassNode     — one per class
   LevelNode     — one per folder at each hierarchy level
 
 Relationships:
   (KnowledgeNode)-[:OWNS]->(FileNode)
   (KnowledgeNode)-[:OWNS]->(LevelNode)
-  (FileNode)-[:IMPORTS {symbols, raw, is_local}]->(FileNode)
+  (FileNode)-[:IMPORTS_FUNCTION {alias, is_local}]->(FunctionNode)
+  (FileNode)-[:IMPORTS_CLASS    {alias, is_local}]->(ClassNode)
+  (FileNode)-[:EXPORTS_FUNCTION {is_public}]->(FunctionNode)
+  (FileNode)-[:EXPORTS_CLASS    {is_public}]->(ClassNode)
   (FileNode)-[:IN_FOLDER]->(LevelNode)
   (FunctionNode)-[:BELONGS_TO]->(FileNode)
   (ClassNode)-[:BELONGS_TO]->(FileNode)
@@ -22,6 +25,7 @@ Relationships:
   (LevelNode)-[:PARENT]->(LevelNode)
 """
 
+from pathlib import Path
 from tqdm import tqdm
 from models import PipelineState
 from config import get_neo4j_driver
@@ -62,7 +66,8 @@ def create_knowledge_node(driver, state: PipelineState):
     rs = state.repo_summary
     _run(driver, """
         MERGE (k:KnowledgeNode {knowledge_id: $knowledge_id})
-        SET k.repo_path   = $repo_path,
+        SET k.name        = $name,
+            k.repo_path   = $repo_path,
             k.org_id      = $org_id,
             k.purpose     = $purpose,
             k.summary     = $summary,
@@ -70,6 +75,7 @@ def create_knowledge_node(driver, state: PipelineState):
             k.languages   = $languages
     """, {
         "knowledge_id": state.knowledge_id,
+        "name":         Path(state.repo_path).name or state.repo_path,
         "repo_path":    state.repo_path,
         "org_id":       state.org_id or "",
         "purpose":      rs.purpose or "" if rs else "",
@@ -82,22 +88,32 @@ def create_knowledge_node(driver, state: PipelineState):
 def create_file_nodes(driver, state: PipelineState):
     batch = [
         {
-            "path":         f.path,
-            "language":     f.language,
-            "summary":      f.summary or "",
-            "purpose":      f.purpose or "",
-            "total_lines":  f.total_lines,
-            "knowledge_id": state.knowledge_id,
+            "path":           f.path,
+            "name":           Path(f.path).name,
+            "language":       f.language,
+            "summary":        f.summary or "",
+            "purpose":        f.purpose or "",
+            "total_lines":    f.total_lines,
+            "parse_error":    f.parse_error or "",
+            "function_count": len(f.functions),
+            "class_count":    len(f.classes),
+            "import_count":   len(f.imports),
+            "knowledge_id":   state.knowledge_id,
         }
         for f in state.files
     ]
     _run_batch(driver, """
         UNWIND $batch AS f
         MERGE (n:FileNode {path: f.path, knowledge_id: f.knowledge_id})
-        SET n.language    = f.language,
-            n.summary     = f.summary,
-            n.purpose     = f.purpose,
-            n.total_lines = f.total_lines
+        SET n.name           = f.name,
+            n.language       = f.language,
+            n.summary        = f.summary,
+            n.purpose        = f.purpose,
+            n.total_lines    = f.total_lines,
+            n.parse_error    = f.parse_error,
+            n.function_count = f.function_count,
+            n.class_count    = f.class_count,
+            n.import_count   = f.import_count
         WITH n, f
         MATCH (k:KnowledgeNode {knowledge_id: f.knowledge_id})
         MERGE (k)-[:OWNS]->(n)
@@ -115,6 +131,7 @@ def create_function_nodes(driver, state: PipelineState):
             "is_method":    func.is_method,
             "class_name":   func.class_name or "",
             "parameters":   [p.name for p in func.parameters],
+            "param_types":  [p.type_hint or "" for p in func.parameters],
             "knowledge_id": state.knowledge_id,
         }
         for f in state.files
@@ -128,7 +145,8 @@ def create_function_nodes(driver, state: PipelineState):
             n.return_type = fn.return_type,
             n.is_method   = fn.is_method,
             n.class_name  = fn.class_name,
-            n.parameters  = fn.parameters
+            n.parameters  = fn.parameters,
+            n.param_types = fn.param_types
         WITH n, fn
         MATCH (f:FileNode {path: fn.file_path, knowledge_id: fn.knowledge_id})
         MERGE (n)-[:BELONGS_TO]->(f)
@@ -166,6 +184,7 @@ def create_level_nodes(driver, state: PipelineState):
     batch = [
         {
             "path":         node.path,
+            "name":         Path(node.path).name or node.path,
             "level":        node.level,
             "summary":      node.summary or "",
             "purpose":      node.purpose or "",
@@ -178,7 +197,8 @@ def create_level_nodes(driver, state: PipelineState):
     _run_batch(driver, """
         UNWIND $batch AS ln
         MERGE (n:LevelNode {path: ln.path, knowledge_id: ln.knowledge_id})
-        SET n.level      = ln.level,
+        SET n.name       = ln.name,
+            n.level      = ln.level,
             n.summary    = ln.summary,
             n.purpose    = ln.purpose,
             n.file_count = ln.file_count,
@@ -291,52 +311,123 @@ def create_calls_relationships(driver, state: PipelineState):
     """, batch)
 
 
-def create_imports_relationships(driver, state: PipelineState):
-    # Build lookup: normalized module path -> file_path
+def _build_file_lookup(state: PipelineState) -> dict[str, str]:
+    """Maps normalized module path -> file_path for local resolution.
+
+    Registers every possible suffix of the path so that dotted imports like
+    'agents.supervisor' (-> 'agents/supervisor') match against the full
+    relative path 'practise/day10/agents/supervisor'.
+    """
     file_lookup: dict[str, str] = {}
     for f in state.files:
         normalized = _normalize(f.path).replace(".py", "")
-        file_lookup[normalized] = f.path
-        filename = normalized.split("/")[-1]
-        if filename not in file_lookup:
-            file_lookup[filename] = f.path
+        parts = normalized.split("/")
+        # Register all trailing suffixes: full path, sub-paths, and filename
+        for i in range(len(parts)):
+            suffix = "/".join(parts[i:])
+            if suffix not in file_lookup:
+                file_lookup[suffix] = f.path
+    return file_lookup
+
+
+def create_imports_function_relationships(driver, state: PipelineState):
+    file_lookup = _build_file_lookup(state)
 
     batch = []
     for f in state.files:
-        for imp in f.imports:
-            if not imp.module:
+        for sym in f.imported_functions:
+            if not sym.module:
                 continue
-
-            module_normalized = imp.module.replace(".", "/")
-            target_path = file_lookup.get(module_normalized) or file_lookup.get(imp.module)
-
+            module_normalized = sym.module.replace(".", "/")
+            target_path = file_lookup.get(module_normalized) or file_lookup.get(sym.module)
             if not target_path or target_path == f.path:
                 continue
-
-            imported_symbols = [
-                s.name
-                for s in (f.imported_functions + f.imported_classes)
-                if s.module == imp.module
-            ]
-
             batch.append({
                 "from_path":    f.path,
-                "to_path":      target_path,
-                "symbols":      imported_symbols,
-                "raw":          imp.raw,
-                "is_local":     imp.is_local,
+                "func_name":    sym.name,
+                "func_path":    target_path,
+                "alias":        sym.alias or "",
+                "is_local":     True,
+                "knowledge_id": state.knowledge_id,
+            })
+
+    _run_batch(driver, """
+        UNWIND $batch AS r
+        MATCH (from:FileNode   {path: r.from_path, knowledge_id: r.knowledge_id})
+        MATCH (fn:FunctionNode {name: r.func_name, file_path: r.func_path, knowledge_id: r.knowledge_id})
+        MERGE (from)-[rel:IMPORTS_FUNCTION]->(fn)
+        SET rel.alias    = r.alias,
+            rel.is_local = r.is_local
+    """, batch)
+
+
+def create_imports_class_relationships(driver, state: PipelineState):
+    file_lookup = _build_file_lookup(state)
+
+    batch = []
+    for f in state.files:
+        for sym in f.imported_classes:
+            if not sym.module:
+                continue
+            module_normalized = sym.module.replace(".", "/")
+            target_path = file_lookup.get(module_normalized) or file_lookup.get(sym.module)
+            if not target_path or target_path == f.path:
+                continue
+            batch.append({
+                "from_path":    f.path,
+                "class_name":   sym.name,
+                "class_path":   target_path,
+                "alias":        sym.alias or "",
+                "is_local":     True,
                 "knowledge_id": state.knowledge_id,
             })
 
     _run_batch(driver, """
         UNWIND $batch AS r
         MATCH (from:FileNode {path: r.from_path, knowledge_id: r.knowledge_id})
-        MATCH (to:FileNode   {path: r.to_path,   knowledge_id: r.knowledge_id})
-        MERGE (from)-[rel:IMPORTS]->(to)
-        SET rel.symbols  = r.symbols,
-            rel.raw      = r.raw,
+        MATCH (cls:ClassNode {name: r.class_name, file_path: r.class_path, knowledge_id: r.knowledge_id})
+        MERGE (from)-[rel:IMPORTS_CLASS]->(cls)
+        SET rel.alias    = r.alias,
             rel.is_local = r.is_local
     """, batch)
+
+
+def create_exports_relationships(driver, state: PipelineState):
+    func_batch = [
+        {
+            "file_path":    f.path,
+            "func_name":    sym.name,
+            "is_public":    sym.is_public,
+            "knowledge_id": state.knowledge_id,
+        }
+        for f in state.files
+        for sym in f.exported_functions
+    ]
+    _run_batch(driver, """
+        UNWIND $batch AS r
+        MATCH (file:FileNode   {path: r.file_path, knowledge_id: r.knowledge_id})
+        MATCH (fn:FunctionNode {name: r.func_name, file_path: r.file_path, knowledge_id: r.knowledge_id})
+        MERGE (file)-[rel:EXPORTS_FUNCTION]->(fn)
+        SET rel.is_public = r.is_public
+    """, func_batch)
+
+    class_batch = [
+        {
+            "file_path":    f.path,
+            "class_name":   sym.name,
+            "is_public":    sym.is_public,
+            "knowledge_id": state.knowledge_id,
+        }
+        for f in state.files
+        for sym in f.exported_classes
+    ]
+    _run_batch(driver, """
+        UNWIND $batch AS r
+        MATCH (file:FileNode {path: r.file_path, knowledge_id: r.knowledge_id})
+        MATCH (cls:ClassNode {name: r.class_name, file_path: r.file_path, knowledge_id: r.knowledge_id})
+        MERGE (file)-[rel:EXPORTS_CLASS]->(cls)
+        SET rel.is_public = r.is_public
+    """, class_batch)
 
 
 def neo4j_ingest(state: PipelineState) -> PipelineState:
@@ -368,11 +459,13 @@ def neo4j_ingest(state: PipelineState) -> PipelineState:
 
     print("[Neo4j] Creating relationships...")
     steps = [
-        ("FileNode -[:IN_FOLDER]-> LevelNode",     create_file_in_folder_relationships),
-        ("LevelNode -[:PARENT]-> LevelNode",        create_level_parent_relationships),
-        ("ClassNode -[:HAS_METHOD]-> FunctionNode", create_class_has_method_relationships),
-        ("FunctionNode -[:CALLS]-> FunctionNode",   create_calls_relationships),
-        ("FileNode -[:IMPORTS]-> FileNode",         create_imports_relationships),
+        ("FileNode -[:IN_FOLDER]-> LevelNode",              create_file_in_folder_relationships),
+        ("LevelNode -[:PARENT]-> LevelNode",                create_level_parent_relationships),
+        ("ClassNode -[:HAS_METHOD]-> FunctionNode",         create_class_has_method_relationships),
+        ("FunctionNode -[:CALLS]-> FunctionNode",           create_calls_relationships),
+        ("FileNode -[:IMPORTS_FUNCTION]-> FunctionNode",    create_imports_function_relationships),
+        ("FileNode -[:IMPORTS_CLASS]-> ClassNode",          create_imports_class_relationships),
+        ("FileNode -[:EXPORTS_FUNCTION/EXPORTS_CLASS]->",   create_exports_relationships),
     ]
 
     for label, fn in tqdm(steps, desc="Relationships"):
@@ -400,10 +493,11 @@ if __name__ == "__main__":
     from phases.hierarchy import build_hierarchy
 
     if len(sys.argv) < 2:
-        print("Usage: python -m phases.neo4j_ingest <repo_path>")
+        print("Usage: python -m phases.neo4j_ingest <repo_path> [knowledge_id]")
         sys.exit(1)
 
-    state = PipelineState(repo_path=sys.argv[1], knowledge_id=str(uuid.uuid4())[:8])
+    knowledge_id = sys.argv[2] if len(sys.argv) >= 3 else str(uuid.uuid4())[:8]
+    state = PipelineState(repo_path=sys.argv[1], knowledge_id=knowledge_id)
     state = scan_repo(state)
     state = analyze_files(state)
     state = analyze_with_llm(state)
