@@ -5,7 +5,6 @@ Place at: phases/file_analysis.py
 Runs tree-sitter parser on each file.
 Extracts functions, classes, imports and caches to disk.
 """
-
 import json
 from pathlib import Path
 from typing import Optional

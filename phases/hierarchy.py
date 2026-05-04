@@ -131,16 +131,7 @@ def build_hierarchy(state: PipelineState) -> PipelineState:
             ]
             summary, purpose = summarize_folder(parent_path, child_summaries, all_langs, total_files)
             time.sleep(0.1)
-            node = LevelNode(
-                path=parent_path,
-                level=level,
-                subfolders=children,
-                languages=all_langs,
-                file_count=total_files,
-                summary=summary,
-                purpose=purpose,
-                parent_path=get_parent(parent_path),
-            )
+            node = LevelNode(path=parent_path,level=level,subfolders=children,languages=all_langs,file_count=total_files,summary=summary,purpose=purpose,parent_path=get_parent(parent_path),)
             save_hierarchy_cache(cache_dir, parent_path, node.model_dump(), level=level)
             hierarchy[parent_path] = node
         current_paths = set(parent_children.keys())
@@ -170,8 +161,8 @@ def build_hierarchy(state: PipelineState) -> PipelineState:
     with open(repo_dir / "summary.json", "w") as f:
         json.dump(state.repo_summary.model_dump(), f, indent=2)
     print(f"\n[Hierarchy] Results:")
-    print(f"  Total nodes  : {len(hierarchy)}")
-    print(f"  Repo purpose : {state.repo_summary.purpose}")
+    print(f"Total nodes  : {len(hierarchy)}")
+    print(f"Repo purpose : {state.repo_summary.purpose}")
     state.hierarchy = hierarchy
     state.hierarchy_complete = True
     return state
