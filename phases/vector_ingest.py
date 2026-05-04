@@ -104,7 +104,6 @@ def upload_to_pinecone(index, vectors: List[dict]):
     for i in range(0, len(vectors), UPSERT_BATCH):
         index.upsert(vectors=vectors[i : i + UPSERT_BATCH])
 
-
 def vector_ingest(state: PipelineState) -> PipelineState:
     if state.vector_complete:
         print("[VectorIngest] Already done, skipping.")
@@ -115,7 +114,6 @@ def vector_ingest(state: PipelineState) -> PipelineState:
     failed = 0
 
     print(f"\n[VectorIngest] Processing {len(state.files)} files...")
-
     for file_info in tqdm(state.files, desc="Embedding files"):
         try:
             chunks = build_chunks(file_info, MAX_CHUNK_TOKENS)
@@ -126,7 +124,6 @@ def vector_ingest(state: PipelineState) -> PipelineState:
             for i in range(0, len(chunks), EMBED_BATCH):
                 batch = chunks[i : i + EMBED_BATCH]
                 embeddings = embed([c["text"] for c in batch])
-
                 for chunk, embedding in zip(batch, embeddings):
                     chunk_id = make_chunk_id(
                         state.knowledge_id,
@@ -148,20 +145,15 @@ def vector_ingest(state: PipelineState) -> PipelineState:
             upload_to_pinecone(index, vectors)
             total_chunks += len(chunks)
             time.sleep(0.05)
-
         except Exception as e:
             print(f"\n  [Error] {file_info.path}: {e}")
             failed += 1
-
     print(f"\n[VectorIngest] Done.")
     print(f"  Files processed : {len(state.files) - failed}")
     print(f"  Failed          : {failed}")
     print(f"  Total vectors   : {total_chunks}")
-
     state.vector_complete = True
     return state
-
-
 if __name__ == "__main__":
     import sys
     import uuid

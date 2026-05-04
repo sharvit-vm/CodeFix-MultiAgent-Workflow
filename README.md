@@ -21,5 +21,7 @@ This repository contains the data ingestion pipeline that powers the KB Search, 
   - Grouping files bottom-up into nested folder nodes (Level 1 to Level 8) and aggregating directory-level context. 
 - [x] **Phase 5: Neo4j Ingestion**
   - Executing Cypher queries to create massive structural relationships (`[:CALLS]`, `[:IMPORTS]`, `[:BELONGS_TO]`) for exact Agent blast-radius detection.
-- [ ] **Phase 6: Pinecone Ingestion**
+- [x] **Phase 6: Pinecone Ingestion**
   - Generating semantic AI embeddings of chunks and safely upserting vectorized knowledge scoped safely via `knowledge_id`.
+- [ ] **Agents Building and refactoring**
+  - Creating agents with access to the knowledge base(neo4j and vector db) and some refactoring as needed on the go.
