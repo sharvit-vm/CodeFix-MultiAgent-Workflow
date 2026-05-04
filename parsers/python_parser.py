@@ -126,6 +126,8 @@ class PythonParser(BaseParser):
                     if attr:
                         calls.append(self._get_node_text(attr, source))
         for child in node.children:
+            if child.type == "function_definition":
+                continue  # nested function's calls belong to it, not to the outer function
             self._collect_calls(child, source, calls)
 
     def extract_classes(self, source: bytes, tree) -> List[ClassInfo]:

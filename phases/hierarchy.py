@@ -31,15 +31,15 @@ def get_hierarchy_cache_dir(state: PipelineState) -> Path:
     d = Path(CACHE_DIR) / state.knowledge_id / "hierarchy"
     d.mkdir(parents=True, exist_ok=True)
     return d
-def save_hierarchy_cache(cache_dir: Path, key: str, data: dict, level: int):
+def save_hierarchy_cache(cache_dir: Path, folder_path: str, data: dict, level: int):
     level_dir = cache_dir / f"L{level}"
     level_dir.mkdir(parents=True, exist_ok=True)
-    filename = key.replace("/", "__").replace("\\", "__") + ".json"
+    filename = folder_path.replace("/", "__").replace("\\", "__") + ".json"
     with open(level_dir / filename, "w") as f:
         json.dump(data, f, indent=2)
-def load_hierarchy_cache(cache_dir: Path, key: str, level: int) -> dict | None:
+def load_hierarchy_cache(cache_dir: Path, folder_path: str, level: int) -> dict | None:
     level_dir = cache_dir / f"L{level}"
-    filename = key.replace("/", "__").replace("\\", "__") + ".json"
+    filename = folder_path.replace("/", "__").replace("\\", "__") + ".json"
     p = level_dir / filename
     if p.exists():
         with open(p) as f:
@@ -101,7 +101,8 @@ def build_hierarchy(state: PipelineState) -> PipelineState:
         )
         save_hierarchy_cache(cache_dir, folder_path, node.model_dump(), level=1)
         hierarchy[folder_path] = node
-    current_paths = set(folder_files.keys())
+    # Exclude "(root)" so it doesn't block L2+ parent traversal
+    current_paths = {path for path in folder_files if path != "(root)"}
     for level in range(2, MAX_HIERARCHY_LEVELS + 1):
         parent_children: Dict[str, List[str]] = defaultdict(list)
         for path in current_paths:

@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from neo4j import GraphDatabase
 from pinecone import Pinecone
 
-load_dotenv()
+load_dotenv(override=True)
 
 NEO4J_URI = os.getenv("NEO4J_URI")
 NEO4J_USERNAME = os.getenv("NEO4J_USERNAME", "neo4j")

@@ -52,7 +52,7 @@ def create_constraints(driver):
         "CREATE CONSTRAINT IF NOT EXISTS FOR (n:KnowledgeNode) REQUIRE (n.knowledge_id) IS UNIQUE",
         "CREATE CONSTRAINT IF NOT EXISTS FOR (n:FileNode) REQUIRE (n.path, n.knowledge_id) IS NODE KEY",
         "CREATE CONSTRAINT IF NOT EXISTS FOR (n:LevelNode) REQUIRE (n.path, n.knowledge_id) IS NODE KEY",
-        "CREATE CONSTRAINT IF NOT EXISTS FOR (n:FunctionNode) REQUIRE (n.name, n.file_path, n.knowledge_id) IS NODE KEY",
+        "CREATE CONSTRAINT IF NOT EXISTS FOR (n:FunctionNode) REQUIRE (n.name, n.file_path, n.start_line, n.knowledge_id) IS NODE KEY",
         "CREATE CONSTRAINT IF NOT EXISTS FOR (n:ClassNode) REQUIRE (n.name, n.file_path, n.knowledge_id) IS NODE KEY",
     ]
     for c in constraints:
@@ -139,7 +139,7 @@ def create_function_nodes(driver, state: PipelineState):
     ]
     _run_batch(driver, """
         UNWIND $batch AS fn
-        MERGE (n:FunctionNode {name: fn.name, file_path: fn.file_path, knowledge_id: fn.knowledge_id})
+        MERGE (n:FunctionNode {name: fn.name, file_path: fn.file_path, start_line: fn.start_line, knowledge_id: fn.knowledge_id})
         SET n.start_line  = fn.start_line,
             n.end_line    = fn.end_line,
             n.return_type = fn.return_type,
@@ -252,10 +252,11 @@ def create_level_parent_relationships(driver, state: PipelineState):
 def create_class_has_method_relationships(driver, state: PipelineState):
     batch = [
         {
-            "class_name":   func.class_name,
-            "func_name":    func.name,
-            "file_path":    f.path,
-            "knowledge_id": state.knowledge_id,
+            "class_name":      func.class_name,
+            "func_name":       func.name,
+            "func_start_line": func.start_line,
+            "file_path":       f.path,
+            "knowledge_id":    state.knowledge_id,
         }
         for f in state.files
         for func in f.functions
@@ -264,22 +265,22 @@ def create_class_has_method_relationships(driver, state: PipelineState):
     _run_batch(driver, """
         UNWIND $batch AS r
         MATCH (c:ClassNode  {name: r.class_name, file_path: r.file_path, knowledge_id: r.knowledge_id})
-        MATCH (fn:FunctionNode {name: r.func_name, file_path: r.file_path, knowledge_id: r.knowledge_id})
+        MATCH (fn:FunctionNode {name: r.func_name, file_path: r.file_path, start_line: r.func_start_line, knowledge_id: r.knowledge_id})
         MERGE (c)-[:HAS_METHOD]->(fn)
     """, batch)
 
 
 def create_calls_relationships(driver, state: PipelineState):
-    # Build lookup: function name -> file_path (first occurrence as fallback)
-    global_func_lookup: dict[str, str] = {}
+    # Build lookup: function name -> (file_path, start_line) for first occurrence as fallback
+    global_func_lookup: dict[str, tuple] = {}
     for f in state.files:
         for func in f.functions:
             if func.name not in global_func_lookup:
-                global_func_lookup[func.name] = f.path
+                global_func_lookup[func.name] = (f.path, func.start_line)
 
-    # Build per-file function name sets for same-file resolution
-    file_func_names: dict[str, set] = {
-        f.path: {func.name for func in f.functions}
+    # Build per-file function name -> start_line map for same-file resolution
+    file_func_info: dict[str, dict[str, int]] = {
+        f.path: {func.name: func.start_line for func in f.functions}
         for f in state.files
     }
 
@@ -288,25 +289,28 @@ def create_calls_relationships(driver, state: PipelineState):
         for func in f.functions:
             for called_name in func.calls:
                 # Prefer same-file match, fall back to global lookup
-                if called_name in file_func_names.get(f.path, set()):
+                if called_name in file_func_info.get(f.path, {}):
                     callee_file = f.path
+                    callee_start = file_func_info[f.path][called_name]
                 elif called_name in global_func_lookup:
-                    callee_file = global_func_lookup[called_name]
+                    callee_file, callee_start = global_func_lookup[called_name]
                 else:
                     continue
 
                 batch.append({
-                    "caller_name":  func.name,
-                    "caller_file":  f.path,
-                    "callee_name":  called_name,
-                    "callee_file":  callee_file,
-                    "knowledge_id": state.knowledge_id,
+                    "caller_name":       func.name,
+                    "caller_file":       f.path,
+                    "caller_start_line": func.start_line,
+                    "callee_name":       called_name,
+                    "callee_file":       callee_file,
+                    "callee_start_line": callee_start,
+                    "knowledge_id":      state.knowledge_id,
                 })
 
     _run_batch(driver, """
         UNWIND $batch AS r
-        MATCH (caller:FunctionNode {name: r.caller_name, file_path: r.caller_file, knowledge_id: r.knowledge_id})
-        MATCH (callee:FunctionNode {name: r.callee_name, file_path: r.callee_file, knowledge_id: r.knowledge_id})
+        MATCH (caller:FunctionNode {name: r.caller_name, file_path: r.caller_file, start_line: r.caller_start_line, knowledge_id: r.knowledge_id})
+        MATCH (callee:FunctionNode {name: r.callee_name, file_path: r.callee_file, start_line: r.callee_start_line, knowledge_id: r.knowledge_id})
         MERGE (caller)-[:CALLS]->(callee)
     """, batch)
 
@@ -333,6 +337,12 @@ def _build_file_lookup(state: PipelineState) -> dict[str, str]:
 def create_imports_function_relationships(driver, state: PipelineState):
     file_lookup = _build_file_lookup(state)
 
+    # Build per-file function name -> start_line for resolving import targets
+    file_func_start: dict[str, dict[str, int]] = {
+        f.path: {func.name: func.start_line for func in f.functions}
+        for f in state.files
+    }
+
     batch = []
     for f in state.files:
         for sym in f.imported_functions:
@@ -342,10 +352,14 @@ def create_imports_function_relationships(driver, state: PipelineState):
             target_path = file_lookup.get(module_normalized) or file_lookup.get(sym.module)
             if not target_path or target_path == f.path:
                 continue
+            start_line = file_func_start.get(target_path, {}).get(sym.name)
+            if start_line is None:
+                continue  # function not found in target file, skip
             batch.append({
                 "from_path":    f.path,
                 "func_name":    sym.name,
                 "func_path":    target_path,
+                "func_start":   start_line,
                 "alias":        sym.alias or "",
                 "is_local":     True,
                 "knowledge_id": state.knowledge_id,
@@ -354,7 +368,7 @@ def create_imports_function_relationships(driver, state: PipelineState):
     _run_batch(driver, """
         UNWIND $batch AS r
         MATCH (from:FileNode   {path: r.from_path, knowledge_id: r.knowledge_id})
-        MATCH (fn:FunctionNode {name: r.func_name, file_path: r.func_path, knowledge_id: r.knowledge_id})
+        MATCH (fn:FunctionNode {name: r.func_name, file_path: r.func_path, start_line: r.func_start, knowledge_id: r.knowledge_id})
         MERGE (from)-[rel:IMPORTS_FUNCTION]->(fn)
         SET rel.alias    = r.alias,
             rel.is_local = r.is_local
