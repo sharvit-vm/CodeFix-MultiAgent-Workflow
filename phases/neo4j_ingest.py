@@ -411,6 +411,7 @@ def create_exports_relationships(driver, state: PipelineState):
         {
             "file_path":    f.path,
             "func_name":    sym.name,
+            "func_start":   next((fn.start_line for fn in f.functions if fn.name == sym.name), 0),
             "is_public":    sym.is_public,
             "knowledge_id": state.knowledge_id,
         }
@@ -420,7 +421,7 @@ def create_exports_relationships(driver, state: PipelineState):
     _run_batch(driver, """
         UNWIND $batch AS r
         MATCH (file:FileNode   {path: r.file_path, knowledge_id: r.knowledge_id})
-        MATCH (fn:FunctionNode {name: r.func_name, file_path: r.file_path, knowledge_id: r.knowledge_id})
+        MATCH (fn:FunctionNode {name: r.func_name, file_path: r.file_path, start_line: r.func_start, knowledge_id: r.knowledge_id})
         MERGE (file)-[rel:EXPORTS_FUNCTION]->(fn)
         SET rel.is_public = r.is_public
     """, func_batch)
