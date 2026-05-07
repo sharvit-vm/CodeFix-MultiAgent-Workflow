@@ -25,7 +25,7 @@ from config import get_neo4j_driver
 CLONE_DIR = os.getenv("CLONE_DIR", "clone")
 TOKEN_LIMIT = 3000
 
-enc = tiktoken.encoding_for_model("gpt-4o")
+enc = tiktoken.encoding_for_model("gpt-4o-mini")
 
 fallback_splitter = RecursiveCharacterTextSplitter(
     chunk_size=12000,
