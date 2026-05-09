@@ -1,17 +1,19 @@
 """
 RCA Agent — Root Cause Analysis
-Receives an ErrorEvent, reasons about the bug using Neo4j and file tools,
-and returns a structured RCAResult.
+Place at: agents/rca_agent.py
+
+Uses langchain.agents.create_agent (LangGraph v1 current API).
+create_react_agent from langgraph.prebuilt is deprecated in LangGraph v1.
 """
 
 import json
 from typing import List
 from pydantic import BaseModel
-from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.prebuilt import create_react_agent
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage
+from langchain.agents import create_agent          
 
-from config import agent_llm
-from issuelayer.intake.schemas import ErrorEvent
+from config import OPENAI_API_KEY
 from tools.neo4j_tool import (
     get_connected_files,
     get_function_calls,
@@ -23,6 +25,16 @@ from tools.file_tool import (
     read_file_range,
     get_token_count,
 )
+class ErrorEvent(BaseModel):
+    file_path: str
+    line_number: int
+    function_name: str
+    error_type: str
+    message: str
+    traceback: str
+    repo_url: str
+    knowledge_id: str
+
 
 class RCAResult(BaseModel):
     root_cause: str
@@ -31,8 +43,16 @@ class RCAResult(BaseModel):
     buggy_lines: List[int]
     affected_files: List[str]
     fix_suggestion: str
-    confidence: str   
+    confidence: str     
     reasoning: str
+
+
+llm = ChatOpenAI(
+    model="gpt-4o",
+    temperature=0,
+    api_key=OPENAI_API_KEY,
+)
+
 tools = [
     get_connected_files,
     get_function_calls,
@@ -42,6 +62,7 @@ tools = [
     read_file_range,
     get_token_count,
 ]
+
 SYSTEM_PROMPT = """You are an expert software engineer performing root cause analysis on a bug.
 
 You will be given an error event with a file path, line number, function name, error type, and traceback.
@@ -77,7 +98,11 @@ def run_rca(event: ErrorEvent) -> RCAResult:
     """
     Main entry point. Takes an ErrorEvent and returns a structured RCAResult.
     """
-    agent = create_react_agent(agent_llm, tools)
+    agent = create_agent(
+        model=llm,
+        tools=tools,
+        prompt=SYSTEM_PROMPT,
+    )
 
     user_message = f"""
 Error Event:
@@ -90,14 +115,12 @@ Error Event:
 
 Traceback:
 {event.traceback}
+
 Investigate this bug and return your RCAResult JSON.
 """
     try:
         result = agent.invoke({
-            "messages": [
-                SystemMessage(content=SYSTEM_PROMPT),
-                HumanMessage(content=user_message),
-            ]
+            "messages": [HumanMessage(content=user_message)]
         })
         last_message = result["messages"][-1].content
         clean = last_message.strip()
@@ -121,6 +144,7 @@ Investigate this bug and return your RCAResult JSON.
             confidence="low",
             reasoning=f"Agent encountered an error: {str(e)}",
         )
+
 if __name__ == "__main__":
     test_event = ErrorEvent(
         file_path="practise/day10/agents/editor.py",
