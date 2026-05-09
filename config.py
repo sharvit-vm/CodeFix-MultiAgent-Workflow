@@ -31,6 +31,12 @@ llm = ChatOpenAI(
     api_key=OPENAI_API_KEY,
 )
 
+agent_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0,
+    api_key=OPENAI_API_KEY,
+)
+
 def get_neo4j_driver():
     """Returns a singleton Neo4j driver. Call driver.close() when done."""
     global _neo4j_driver

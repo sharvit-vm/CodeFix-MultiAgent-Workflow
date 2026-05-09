@@ -51,7 +51,6 @@ def get_function_boundaries(file_path: str, knowledge_id: str) -> list[dict]:
         """, {"path": file_path, "kid": knowledge_id})
         return [dict(r) for r in result]
 
-
 def build_chunk_header(file_path: str, name: str, chunk_type: str, start: int, end: int) -> str:
     """
     Every chunk gets this header so the LLM always knows:
