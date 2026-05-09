@@ -1,19 +1,21 @@
 """
 RCA Agent — Root Cause Analysis
-Place at: agents/rca_agent.py
 
-Uses langchain.agents.create_agent (LangGraph v1 current API).
-create_react_agent from langgraph.prebuilt is deprecated in LangGraph v1.
+Receives an ErrorEvent and a knowledge_id, reasons about the bug using
+Neo4j and file tools, and returns a structured RCAResult.
+
+knowledge_id is passed separately because it comes from the ingestion
+pipeline, not from the GitHub issue (ErrorEvent).
 """
 
 import json
 from typing import List
 from pydantic import BaseModel
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-from langchain.agents import create_agent          
+from langchain.agents import create_agent
 
-from config import OPENAI_API_KEY
+from config import agent_llm
+from issuelayer.intake.schemas import ErrorEvent
 from tools.neo4j_tool import (
     get_connected_files,
     get_function_calls,
@@ -25,15 +27,6 @@ from tools.file_tool import (
     read_file_range,
     get_token_count,
 )
-class ErrorEvent(BaseModel):
-    file_path: str
-    line_number: int
-    function_name: str
-    error_type: str
-    message: str
-    traceback: str
-    repo_url: str
-    knowledge_id: str
 
 
 class RCAResult(BaseModel):
@@ -43,15 +36,9 @@ class RCAResult(BaseModel):
     buggy_lines: List[int]
     affected_files: List[str]
     fix_suggestion: str
-    confidence: str     
+    confidence: str        # "high" / "medium" / "low"
     reasoning: str
 
-
-llm = ChatOpenAI(
-    model="gpt-4o",
-    temperature=0,
-    api_key=OPENAI_API_KEY,
-)
 
 tools = [
     get_connected_files,
@@ -93,15 +80,21 @@ When you are done reasoning, output a JSON object with exactly these fields:
   "confidence": "high",
   "reasoning": "step by step reasoning you followed"
 }
+
 Output ONLY the JSON. No extra text before or after it."""
-def run_rca(event: ErrorEvent) -> RCAResult:
+
+
+def run_rca(event: ErrorEvent, knowledge_id: str) -> RCAResult:
     """
-    Main entry point. Takes an ErrorEvent and returns a structured RCAResult.
+    Main entry point. Takes an ErrorEvent and knowledge_id, returns RCAResult.
+
+    knowledge_id is the Neo4j graph ID for this repo — it comes from the
+    ingestion pipeline, not from the GitHub issue.
     """
     agent = create_agent(
-        model=llm,
+        model=agent_llm,
         tools=tools,
-        prompt=SYSTEM_PROMPT,
+        system_prompt=SYSTEM_PROMPT,
     )
 
     user_message = f"""
@@ -111,18 +104,21 @@ Error Event:
   Function    : {event.function_name}
   Error type  : {event.error_type}
   Message     : {event.message}
-  Knowledge ID: {event.knowledge_id}
+  Knowledge ID: {knowledge_id}
 
 Traceback:
 {event.traceback}
 
 Investigate this bug and return your RCAResult JSON.
 """
+
     try:
         result = agent.invoke({
             "messages": [HumanMessage(content=user_message)]
         })
+
         last_message = result["messages"][-1].content
+
         clean = last_message.strip()
         if clean.startswith("```"):
             clean = clean.split("```")[1]
@@ -145,20 +141,26 @@ Investigate this bug and return your RCAResult JSON.
             reasoning=f"Agent encountered an error: {str(e)}",
         )
 
+
 if __name__ == "__main__":
+    from issuelayer.intake.schemas import make_fingerprint
+    import uuid
+
     test_event = ErrorEvent(
-        file_path="practise/day10/agents/editor.py",
-        line_number=12,
-        function_name="edit_content",
+        id=str(uuid.uuid4()),
+        fingerprint=make_fingerprint("AttributeError", "'NoneType' object has no attribute 'content'"),
         error_type="AttributeError",
         message="'NoneType' object has no attribute 'content'",
-        traceback="Traceback (most recent call last):\n  File 'editor.py', line 12, in edit_content\n    result = response.content\nAttributeError: 'NoneType' object has no attribute 'content'",
-        repo_url="https://github.com/sharvit-vm/phase3",
-        knowledge_id="your-knowledge-id-here",
+        traceback="Traceback (most recent call last):\n  File 'practise/day10/agents/editor.py', line 12, in edit_content\n    result = response.content\nAttributeError: 'NoneType' object has no attribute 'content'",
+        file_path="practise/day10/agents/editor.py",
+        function_name="edit_content",
+        line_number=12,
+        repo_url="https://github.com/sharvit-vm/phase3.git",
+        repo_full_name="sharvit-vm/phase3",
     )
 
     print("Running RCA agent...")
-    result = run_rca(test_event)
+    result = run_rca(test_event, knowledge_id="b95467ce")
 
     print("\nRCA Result:")
     print(f"  Root cause     : {result.root_cause}")
