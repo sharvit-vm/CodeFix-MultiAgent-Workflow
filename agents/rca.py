@@ -1,17 +1,14 @@
 """
 RCA Agent — Root Cause Analysis
 
-Receives an ErrorEvent and a knowledge_id, reasons about the bug using
-Neo4j and file tools, and returns a structured RCAResult.
-
-knowledge_id is passed separately because it comes from the ingestion
-pipeline, not from the GitHub issue (ErrorEvent).
+Receives an ErrorEvent + knowledge_id, uses Neo4j and file tools
+to reason about the bug, and returns a structured RCAResult.
 """
 
 import json
 from typing import List
 from pydantic import BaseModel
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain.agents import create_agent
 
 from config import agent_llm
@@ -29,6 +26,8 @@ from tools.file_tool import (
 )
 
 
+# ── Result model ──────────────────────────────────────────────────────────────
+
 class RCAResult(BaseModel):
     root_cause: str
     buggy_file: str
@@ -36,9 +35,11 @@ class RCAResult(BaseModel):
     buggy_lines: List[int]
     affected_files: List[str]
     fix_suggestion: str
-    confidence: str        # "high" / "medium" / "low"
+    confidence: str       # "high" / "medium" / "low"
     reasoning: str
 
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
 
 tools = [
     get_connected_files,
@@ -49,6 +50,8 @@ tools = [
     read_file_range,
     get_token_count,
 ]
+
+# ── System prompt ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """You are an expert software engineer performing root cause analysis on a bug.
 
@@ -84,12 +87,12 @@ When you are done reasoning, output a JSON object with exactly these fields:
 Output ONLY the JSON. No extra text before or after it."""
 
 
+# ── Main entry point ──────────────────────────────────────────────────────────
+
 def run_rca(event: ErrorEvent, knowledge_id: str) -> RCAResult:
     """
-    Main entry point. Takes an ErrorEvent and knowledge_id, returns RCAResult.
-
-    knowledge_id is the Neo4j graph ID for this repo — it comes from the
-    ingestion pipeline, not from the GitHub issue.
+    Takes an ErrorEvent and knowledge_id, returns RCAResult.
+    knowledge_id is the Neo4j graph ID produced by the ingestion pipeline.
     """
     agent = create_agent(
         model=agent_llm,
@@ -119,6 +122,7 @@ Investigate this bug and return your RCAResult JSON.
 
         last_message = result["messages"][-1].content
 
+        # Strip markdown code fences if present
         clean = last_message.strip()
         if clean.startswith("```"):
             clean = clean.split("```")[1]
@@ -130,6 +134,7 @@ Investigate this bug and return your RCAResult JSON.
         return RCAResult(**parsed)
 
     except Exception as e:
+        # Graceful fallback — never crash the pipeline
         return RCAResult(
             root_cause=f"RCA agent failed: {str(e)}",
             buggy_file=event.file_path,
@@ -142,27 +147,44 @@ Investigate this bug and return your RCAResult JSON.
         )
 
 
+# ── Dev test ──────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     from issuelayer.intake.schemas import make_fingerprint
     import uuid
 
     test_event = ErrorEvent(
         id=str(uuid.uuid4()),
-        fingerprint=make_fingerprint("AttributeError", "'NoneType' object has no attribute 'content'"),
+        fingerprint=make_fingerprint(
+            "AttributeError",
+            "'NoneType' object has no attribute 'query'"
+        ),
         error_type="AttributeError",
-        message="'NoneType' object has no attribute 'content'",
-        traceback="Traceback (most recent call last):\n  File 'practise/day10/agents/editor.py', line 12, in edit_content\n    result = response.content\nAttributeError: 'NoneType' object has no attribute 'content'",
-        file_path="practise/day10/agents/editor.py",
-        function_name="edit_content",
-        line_number=12,
-        repo_url="https://github.com/sharvit-vm/phase3.git",
-        repo_full_name="sharvit-vm/phase3",
+        message="'NoneType' object has no attribute 'query'",
+        traceback=(
+            "Traceback (most recent call last):\n"
+            "  File \"rag_agent/pipeline.py\", line 45, in run_pipeline\n"
+            "    result = self.retriever.retrieve(query)\n"
+            "  File \"rag_agent/retriever.py\", line 23, in retrieve\n"
+            "    return self.index.query(query)\n"
+            "AttributeError: 'NoneType' object has no attribute 'query'"
+        ),
+        file_path="rag_agent/retriever.py",
+        function_name="retrieve",
+        line_number=23,
+        repo_url="https://github.com/AbbasAziz-dev/rag_agent.git",
+        repo_full_name="AbbasAziz-dev/rag_agent",
     )
 
     print("Running RCA agent...")
-    result = run_rca(test_event, knowledge_id="b95467ce")
+    print(f"  File     : {test_event.file_path}")
+    print(f"  Function : {test_event.function_name}")
+    print(f"  Error    : {test_event.error_type}: {test_event.message}")
+    print()
 
-    print("\nRCA Result:")
+    result = run_rca(test_event, knowledge_id="1cacbc66")
+
+    print("RCA Result:")
     print(f"  Root cause     : {result.root_cause}")
     print(f"  Buggy file     : {result.buggy_file}")
     print(f"  Buggy function : {result.buggy_function}")

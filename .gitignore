@@ -7,3 +7,6 @@ parsers/typescript_parser.py
 strip.py
 *.md
 !README.md
+clone/
+data/
+.venv/

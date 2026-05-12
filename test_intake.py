@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from intake.schemas import ErrorEvent, make_fingerprint
 from intake.normaliser import (
-    _extract_traceback, _extract_error_type_and_message,
+    _extract_traceback, _extract_error_type_message,
     _extract_file_info, _is_incident_style,
     _extract_incident_fields, normalise_github_issue,
 )
