@@ -1,6 +1,5 @@
 """
 Reads and writes source code files from the cloned repo on disk.
-knowledge_id is read from the environment — agents don't need to pass it.
 """
 
 import os
@@ -27,9 +26,8 @@ def count_tokens(text: str) -> int:
 def get_full_path(file_path: str) -> str:
     return os.path.join(CLONE_DIR, file_path)
 
-def get_function_boundaries(file_path: str) -> list:
-    """Fetches function start/end lines from Neo4j. Uses KNOWLEDGE_ID from env."""
-    knowledge_id = os.getenv("KNOWLEDGE_ID", "")
+def get_function_boundaries(file_path: str, knowledge_id: str) -> list:
+    """Fetches function start/end lines from Neo4j for the given knowledge_id."""
     try:
         driver = get_neo4j_driver()
         with driver.session() as session:
@@ -47,10 +45,11 @@ def build_chunk_header(file_path: str, name: str, chunk_type: str, start: int, e
 
 
 @tool
-def read_file(file_path: str) -> str:
+def read_file(file_path: str, knowledge_id: str = "") -> str:
     """
     Reads a source code file from the cloned repo.
-    If the file is large it splits it into function-level chunks.
+    If the file is large it splits it into function-level chunks using Neo4j boundaries.
+    Pass knowledge_id so chunking can use the correct repo's function data.
     Use this first when investigating a bug.
     """
     full_path = get_full_path(file_path)
@@ -65,7 +64,7 @@ def read_file(file_path: str) -> str:
     if token_count <= TOKEN_LIMIT:
         header = build_chunk_header(file_path, file_path, "File", 1, len(lines))
         return header + "\n" + code
-    functions = get_function_boundaries(file_path)
+    functions = get_function_boundaries(file_path, knowledge_id)
     if not functions:
         raw_chunks = fallback_splitter.split_text(code)
         chunks = []

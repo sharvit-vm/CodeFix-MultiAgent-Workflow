@@ -5,7 +5,9 @@ server.py — FastAPI webhook server
 import os
 import hmac
 import hashlib
+import subprocess
 import traceback
+from urllib.parse import urlparse
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
@@ -20,6 +22,26 @@ app = FastAPI(title="CodeFix Webhook Server")
 queue = EventQueue()
 
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+CLONE_BASE     = os.getenv("CLONE_DIR", "clone")
+
+
+def _clone_or_pull(repo_url: str) -> tuple:
+    """Clone repo into clone/<repo_name>/ or pull if already exists.
+    Returns (repo_path, knowledge_id) — both stable per repo URL."""
+    path     = urlparse(repo_url).path.rstrip("/")
+    name     = path.split("/")[-1].removesuffix(".git") or "repo"
+    kid      = hashlib.md5(repo_url.strip().lower().encode()).hexdigest()[:8]
+    repo_path = os.path.join(CLONE_BASE, name)
+    os.makedirs(CLONE_BASE, exist_ok=True)
+    if os.path.isdir(os.path.join(repo_path, ".git")):
+        subprocess.run(["git", "pull"], cwd=repo_path, capture_output=True)
+        print(f"[clone] Pulled latest — {repo_path}")
+    else:
+        result = subprocess.run(["git", "clone", repo_url, repo_path], capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"git clone failed: {result.stderr.strip()}")
+        print(f"[clone] Cloned {repo_url} → {repo_path}")
+    return repo_path, kid
 
 
 def _verify_signature(payload: bytes, sig_header: str) -> bool:
@@ -36,10 +58,24 @@ def _verify_signature(payload: bytes, sig_header: str) -> bool:
 async def _run_rca_and_fix(event: ErrorEvent):
     try:
         from agents.rca import run_rca
+        from models import PipelineState
+        from phases.scanner import scan_repo
+        from phases.file_analysis import analyze_files
+        from phases.llm_analysis import analyze_with_llm
+        from phases.hierarchy import build_hierarchy
+        from phases.neo4j_ingest import neo4j_ingest
 
-        knowledge_id = os.getenv("KNOWLEDGE_ID", "")
-        if not knowledge_id:
-            print(f"[worker] WARNING: KNOWLEDGE_ID not set")
+        repo_path, knowledge_id = _clone_or_pull(event.repo_url)
+
+        queue.update_status(event.id, "ingesting")
+        print(f"[worker] Running ingestion for {repo_path} (id={knowledge_id})")
+        state = PipelineState(repo_path=repo_path, knowledge_id=knowledge_id)
+        state = scan_repo(state)
+        state = analyze_files(state)
+        state = analyze_with_llm(state)
+        state = build_hierarchy(state)
+        state = neo4j_ingest(state)
+        print(f"[worker] Ingestion done — {len(state.files)} files")
 
         queue.update_status(event.id, "running")
         print(f"[worker] Running RCA for event {event.id} ({event.error_type})")
