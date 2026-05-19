@@ -92,7 +92,7 @@ async def _run_rca_and_fix(event: ErrorEvent):
         # ── Code Fix Agent ──
         print(f"[worker] Starting code fix agent...")
         from agents.code_fix import run_code_fix
-        fix_result = run_code_fix(event, rca_result, knowledge_id)
+        fix_result = run_code_fix(event, rca_result, knowledge_id, repo_path)
 
         print(f"[worker] Code fix done — success={fix_result.success}")
         if fix_result.error:

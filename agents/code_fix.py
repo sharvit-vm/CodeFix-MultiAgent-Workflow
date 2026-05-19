@@ -60,26 +60,26 @@ def _git(args: list, cwd: str) -> tuple:
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
-def _prepare_fix_branch(event_id: str) -> str:
+def _prepare_fix_branch(event_id: str, repo_path: str) -> str:
     branch_name = f"codefix/{event_id[:8]}"
-    rc, _, err = _git(["checkout", "-b", branch_name], cwd=CLONE_DIR)
+    rc, _, err = _git(["checkout", "-b", branch_name], cwd=repo_path)
     if rc != 0:
-        rc2, _, _ = _git(["checkout", branch_name], cwd=CLONE_DIR)
+        rc2, _, _ = _git(["checkout", branch_name], cwd=repo_path)
         if rc2 != 0:
             raise RuntimeError(f"Could not create or checkout branch {branch_name}: {err}")
     return branch_name
 
 
-def _commit_and_push(branch_name: str, commit_msg: str) -> list:
-    _git(["add", "-A"], cwd=CLONE_DIR)
-    _, diff_out, _ = _git(["diff", "--cached", "--name-only"], cwd=CLONE_DIR)
+def _commit_and_push(branch_name: str, repo_path: str, commit_msg: str) -> list:
+    _git(["add", "-A"], cwd=repo_path)
+    _, diff_out, _ = _git(["diff", "--cached", "--name-only"], cwd=repo_path)
     changed_files = [f for f in diff_out.splitlines() if f]
 
     if not changed_files:
         raise RuntimeError("No files changed — fix was not applied")
 
-    _git(["commit", "-m", commit_msg], cwd=CLONE_DIR)
-    rc, _, err = _git(["push", "origin", branch_name], cwd=CLONE_DIR)
+    _git(["commit", "-m", commit_msg], cwd=repo_path)
+    rc, _, err = _git(["push", "origin", branch_name], cwd=repo_path)
     if rc != 0:
         raise RuntimeError(f"Push failed: {err}")
 
@@ -156,7 +156,7 @@ After calling write_fix, output ONLY this JSON — no other text:
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-def run_code_fix(event: ErrorEvent, rca: RCAResult, knowledge_id: str) -> CodeFixResult:
+def run_code_fix(event: ErrorEvent, rca: RCAResult, knowledge_id: str, repo_path: str = "") -> CodeFixResult:
     if not GITHUB_TOKEN:
         return CodeFixResult(
             success=False,
@@ -164,16 +164,17 @@ def run_code_fix(event: ErrorEvent, rca: RCAResult, knowledge_id: str) -> CodeFi
             branch_name="",
         )
 
-    if not os.path.isdir(CLONE_DIR):
+    effective_path = repo_path or CLONE_DIR
+    if not os.path.isdir(effective_path):
         return CodeFixResult(
             success=False,
-            error=f"Clone directory not found: {CLONE_DIR}. Run ingestion pipeline first.",
+            error=f"Repo directory not found: {effective_path}",
             branch_name="",
         )
 
     # Step 1 — Create fix branch
     try:
-        branch_name = _prepare_fix_branch(event.id)
+        branch_name = _prepare_fix_branch(event.id, effective_path)
     except Exception as e:
         return CodeFixResult(success=False, error=f"Branch creation failed: {e}", branch_name="")
 
@@ -211,9 +212,10 @@ Apply the fix and return your JSON summary.
 
     patch_summary = ""
     try:
-        result = agent.invoke({
-            "messages": [HumanMessage(content=user_message)]
-        })
+        result = agent.invoke(
+            {"messages": [HumanMessage(content=user_message)]},
+            config={"recursion_limit": 20},
+        )
 
         last_message = result["messages"][-1].content
         clean = last_message.strip()
@@ -237,7 +239,7 @@ Apply the fix and return your JSON summary.
             f"Root cause: {rca.root_cause}\n"
             f"Confidence: {rca.confidence}"
         )
-        changed_files = _commit_and_push(branch_name, commit_msg)
+        changed_files = _commit_and_push(branch_name, effective_path, commit_msg)
     except Exception as e:
         return CodeFixResult(
             success=False,

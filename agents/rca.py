@@ -116,9 +116,10 @@ Investigate this bug and return your RCAResult JSON.
 """
 
     try:
-        result = agent.invoke({
-            "messages": [HumanMessage(content=user_message)]
-        })
+        result = agent.invoke(
+            {"messages": [HumanMessage(content=user_message)]},
+            config={"recursion_limit": 20},
+        )
 
         last_message = result["messages"][-1].content
 
