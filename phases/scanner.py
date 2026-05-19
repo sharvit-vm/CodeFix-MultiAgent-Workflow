@@ -64,7 +64,7 @@ def scan_repo(state: PipelineState) -> PipelineState:
             skipped += 1
             continue
 
-        rel_path = str(Path(abs_path).relative_to(repo_root))
+        rel_path = str(Path(abs_path).relative_to(repo_root)).replace("\\", "/")
 
         file_info = FileInfo(
             path=rel_path,

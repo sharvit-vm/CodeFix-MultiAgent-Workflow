@@ -23,8 +23,30 @@ fallback_splitter = RecursiveCharacterTextSplitter(
 def count_tokens(text: str) -> int:
     return len(enc.encode(text))
 
-def get_full_path(file_path: str) -> str:
-    return os.path.join(CLONE_DIR, file_path)
+_repo_path_cache: dict = {}
+
+def _get_repo_path(knowledge_id: str) -> str:
+    """Looks up the actual cloned repo path from Neo4j. Cached per knowledge_id."""
+    if not knowledge_id:
+        return CLONE_DIR
+    if knowledge_id in _repo_path_cache:
+        return _repo_path_cache[knowledge_id]
+    try:
+        driver = get_neo4j_driver()
+        with driver.session() as session:
+            result = session.run(
+                "MATCH (k:KnowledgeNode {knowledge_id: $kid}) RETURN k.repo_path AS p",
+                {"kid": knowledge_id},
+            )
+            row = result.single()
+            path = row["p"] if row else CLONE_DIR
+            _repo_path_cache[knowledge_id] = path
+            return path
+    except Exception:
+        return CLONE_DIR
+
+def get_full_path(file_path: str, knowledge_id: str = "") -> str:
+    return os.path.join(_get_repo_path(knowledge_id), file_path)
 
 def get_function_boundaries(file_path: str, knowledge_id: str) -> list:
     """Fetches function start/end lines from Neo4j for the given knowledge_id."""
@@ -52,7 +74,7 @@ def read_file(file_path: str, knowledge_id: str = "") -> str:
     Pass knowledge_id so chunking can use the correct repo's function data.
     Use this first when investigating a bug.
     """
-    full_path = get_full_path(file_path)
+    full_path = get_full_path(file_path, knowledge_id)
     if not os.path.exists(full_path):
         return f"[Error] File not found: {full_path}"
     with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -81,12 +103,13 @@ def read_file(file_path: str, knowledge_id: str = "") -> str:
 
 
 @tool
-def read_file_range(file_path: str, start_line: int, end_line: int) -> str:
+def read_file_range(file_path: str, start_line: int, end_line: int, knowledge_id: str = "") -> str:
     """
     Reads a specific range of lines from a file in the cloned repo.
+    Pass knowledge_id so the correct repo's clone is read.
     Use this when you know exact line numbers and only need that section.
     """
-    full_path = get_full_path(file_path)
+    full_path = get_full_path(file_path, knowledge_id)
     if not os.path.exists(full_path):
         return f"[Error] File not found: {full_path}"
     with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -97,12 +120,13 @@ def read_file_range(file_path: str, start_line: int, end_line: int) -> str:
 
 
 @tool
-def write_fix(file_path: str, start_line: int, end_line: int, new_code: str) -> str:
+def write_fix(file_path: str, start_line: int, end_line: int, new_code: str, knowledge_id: str = "") -> str:
     """
     Writes a fix to the cloned repo by replacing lines start_line to end_line
-    with new_code. Only call this after you have read the file and are sure of the fix.
+    with new_code. Pass knowledge_id so the correct repo is patched.
+    Only call this after you have read the file and are sure of the fix.
     """
-    full_path = get_full_path(file_path)
+    full_path = get_full_path(file_path, knowledge_id)
     if not os.path.exists(full_path):
         return f"[Error] File not found: {full_path}"
     with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -117,12 +141,13 @@ def write_fix(file_path: str, start_line: int, end_line: int, new_code: str) -> 
 
 
 @tool
-def get_token_count(file_path: str) -> dict:
+def get_token_count(file_path: str, knowledge_id: str = "") -> dict:
     """
     Returns token count and line count of a file.
+    Pass knowledge_id so the correct repo's file is checked.
     Use this before reading a large file to understand its size.
     """
-    full_path = get_full_path(file_path)
+    full_path = get_full_path(file_path, knowledge_id)
     if not os.path.exists(full_path):
         return {"error": f"File not found: {full_path}"}
     with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
