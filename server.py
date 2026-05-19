@@ -27,17 +27,26 @@ CLONE_BASE     = os.getenv("CLONE_DIR", "clone")
 
 def _clone_or_pull(repo_url: str) -> tuple:
     """Clone repo into clone/<repo_name>/ or pull if already exists.
-    Returns (repo_path, knowledge_id) — both stable per repo URL."""
-    path     = urlparse(repo_url).path.rstrip("/")
-    name     = path.split("/")[-1].removesuffix(".git") or "repo"
-    kid      = hashlib.md5(repo_url.strip().lower().encode()).hexdigest()[:8]
+    Returns (repo_path, knowledge_id) — both stable per repo URL.
+    Injects GITHUB_TOKEN into the HTTPS URL so git push works without prompting."""
+    github_token = os.getenv("GITHUB_TOKEN", "")
+    parsed = urlparse(repo_url)
+    name  = parsed.path.rstrip("/").split("/")[-1].removesuffix(".git") or "repo"
+    kid   = hashlib.md5(repo_url.strip().lower().encode()).hexdigest()[:8]
     repo_path = os.path.join(CLONE_BASE, name)
     os.makedirs(CLONE_BASE, exist_ok=True)
+
+    # Build authenticated URL so git push doesn't prompt for credentials
+    if github_token and parsed.scheme in ("http", "https"):
+        auth_url = repo_url.replace(f"{parsed.scheme}://", f"{parsed.scheme}://{github_token}@")
+    else:
+        auth_url = repo_url
+
     if os.path.isdir(os.path.join(repo_path, ".git")):
-        subprocess.run(["git", "pull"], cwd=repo_path, capture_output=True)
+        subprocess.run(["git", "pull"], cwd=repo_path, capture_output=True, stdin=subprocess.DEVNULL, timeout=120)
         print(f"[clone] Pulled latest — {repo_path}")
     else:
-        result = subprocess.run(["git", "clone", repo_url, repo_path], capture_output=True, text=True)
+        result = subprocess.run(["git", "clone", auth_url, repo_path], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
         if result.returncode != 0:
             raise RuntimeError(f"git clone failed: {result.stderr.strip()}")
         print(f"[clone] Cloned {repo_url} → {repo_path}")

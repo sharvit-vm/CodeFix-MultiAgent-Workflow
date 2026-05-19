@@ -56,6 +56,8 @@ def _git(args: list, cwd: str) -> tuple:
         cwd=cwd,
         capture_output=True,
         text=True,
+        stdin=subprocess.DEVNULL,  # prevent git from hanging waiting for credentials
+        timeout=120,
     )
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
@@ -79,7 +81,10 @@ def _commit_and_push(branch_name: str, repo_path: str, commit_msg: str) -> list:
         raise RuntimeError("No files changed — fix was not applied")
 
     _git(["commit", "-m", commit_msg], cwd=repo_path)
-    rc, _, err = _git(["push", "origin", branch_name], cwd=repo_path)
+    try:
+        rc, _, err = _git(["push", "origin", branch_name], cwd=repo_path)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Push timed out — check GITHUB_TOKEN and repo access")
     if rc != 0:
         raise RuntimeError(f"Push failed: {err}")
 
