@@ -87,12 +87,25 @@ class EventQueue:
         with self._lock:
             return [ErrorEvent(**e) for e in self._read()]
 
+    def all_records(self) -> list[dict]:
+        """Return raw queue records, including RCA and fix results."""
+        with self._lock:
+            return self._read()
+
     def get(self, event_id: str) -> Optional[ErrorEvent]:
         """Fetch a single event by ID."""
         with self._lock:
             for e in self._read():
                 if e["id"] == event_id:
                     return ErrorEvent(**e)
+            return None
+
+    def get_record(self, event_id: str) -> Optional[dict]:
+        """Fetch a raw queue record by ID, including RCA and fix results."""
+        with self._lock:
+            for e in self._read():
+                if e["id"] == event_id:
+                    return e
             return None
 
     def update_status(self, event_id: str, status: str, extra: dict = None):

@@ -181,16 +181,15 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
 
 @app.get("/queue")
 async def get_queue():
-    events = queue.all_events()
-    return {"stats": queue.stats(), "events": [e.model_dump() for e in events]}
+    return {"stats": queue.stats(), "events": queue.all_records()}
 
 
 @app.get("/queue/{event_id}")
 async def get_event(event_id: str):
-    event = queue.get(event_id)
+    event = queue.get_record(event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    return event.model_dump()
+    return event
 
 
 @app.get("/health")
