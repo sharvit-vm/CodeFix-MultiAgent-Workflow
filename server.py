@@ -6,6 +6,10 @@ import os
 import hmac
 import hashlib
 import traceback
+import re
+import subprocess
+from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
@@ -20,6 +24,65 @@ app = FastAPI(title="CodeFix Webhook Server")
 queue = EventQueue()
 
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+CLONE_ROOT = os.getenv("CLONE_ROOT", "clone")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+
+
+def _knowledge_id_for_repo(event: ErrorEvent) -> str:
+    identity = (event.repo_full_name or event.repo_url).strip().lower()
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+
+
+def _repo_dir_for_event(event: ErrorEvent) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "__", event.repo_full_name or event.repo_url)
+    return str(Path(CLONE_ROOT) / slug)
+
+
+def _repo_url_with_token(repo_url: str) -> str:
+    if not GITHUB_TOKEN or not repo_url.startswith("https://"):
+        return repo_url
+    parsed = urlparse(repo_url)
+    if "github.com" not in parsed.netloc:
+        return repo_url
+    netloc = f"x-access-token:{GITHUB_TOKEN}@{parsed.netloc}"
+    return urlunparse(parsed._replace(netloc=netloc))
+
+
+def _git(args: list, cwd: str, check: bool = False):
+    result = subprocess.run(["git"] + args, cwd=cwd, capture_output=True, text=True)
+    stdout = result.stdout.strip()
+    stderr = result.stderr.strip()
+    if GITHUB_TOKEN:
+        stdout = stdout.replace(GITHUB_TOKEN, "***")
+        stderr = stderr.replace(GITHUB_TOKEN, "***")
+    if check and result.returncode != 0:
+        raise RuntimeError(stderr or stdout or f"git {' '.join(args)} failed")
+    return result.returncode, stdout, stderr
+
+
+def _ensure_repo_checkout(event: ErrorEvent) -> str:
+    repo_dir = _repo_dir_for_event(event)
+    branch = event.branch or "main"
+    auth_url = _repo_url_with_token(event.repo_url)
+
+    if (Path(repo_dir) / ".git").exists():
+        _git(["remote", "set-url", "origin", auth_url], cwd=repo_dir, check=True)
+        try:
+            _git(["fetch", "origin", branch], cwd=repo_dir, check=True)
+            rc, _, _ = _git(["checkout", branch], cwd=repo_dir)
+            if rc != 0:
+                _git(["checkout", "-b", branch, f"origin/{branch}"], cwd=repo_dir, check=True)
+            _git(["pull", "--ff-only", "origin", branch], cwd=repo_dir, check=True)
+        finally:
+            _git(["remote", "set-url", "origin", event.repo_url], cwd=repo_dir)
+        return repo_dir
+
+    Path(CLONE_ROOT).mkdir(parents=True, exist_ok=True)
+    rc, _, err = _git(["clone", "--branch", branch, auth_url, repo_dir], cwd=".")
+    if rc != 0:
+        raise RuntimeError(f"Clone failed for {event.repo_full_name}: {err}")
+    _git(["remote", "set-url", "origin", event.repo_url], cwd=repo_dir)
+    return repo_dir
 
 
 def _verify_signature(payload: bytes, sig_header: str) -> bool:
@@ -37,14 +100,16 @@ async def _run_rca_and_fix(event: ErrorEvent):
     try:
         from agents.rca import run_rca
 
-        knowledge_id = os.getenv("KNOWLEDGE_ID", "")
-        if not knowledge_id:
-            print(f"[worker] WARNING: KNOWLEDGE_ID not set")
+        knowledge_id = _knowledge_id_for_repo(event)
 
         queue.update_status(event.id, "running")
+        print(f"[worker] Syncing repo for {event.repo_full_name}")
+        repo_dir = _ensure_repo_checkout(event)
+        print(f"[worker] Repo ready at {repo_dir}; knowledge_id={knowledge_id}")
+
         print(f"[worker] Running RCA for event {event.id} ({event.error_type})")
 
-        rca_result = run_rca(event, knowledge_id)
+        rca_result = run_rca(event, knowledge_id, repo_dir=repo_dir)
 
         print(f"[worker] RCA done — confidence={rca_result.confidence}, file={rca_result.buggy_file}")
         print(f"[worker] Root cause: {rca_result.root_cause}")
@@ -56,7 +121,7 @@ async def _run_rca_and_fix(event: ErrorEvent):
         # ── Code Fix Agent ──
         print(f"[worker] Starting code fix agent...")
         from agents.code_fix import run_code_fix
-        fix_result = run_code_fix(event, rca_result, knowledge_id)
+        fix_result = run_code_fix(event, rca_result, knowledge_id, repo_dir=repo_dir)
 
         print(f"[worker] Code fix done — success={fix_result.success}")
         if fix_result.error:
@@ -110,6 +175,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
         "event_id":    error_event.id,
         "fingerprint": error_event.fingerprint,
         "error_type":  error_event.error_type,
+        "knowledge_id": _knowledge_id_for_repo(error_event),
     })
 
 

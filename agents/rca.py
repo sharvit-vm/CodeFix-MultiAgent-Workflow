@@ -23,6 +23,8 @@ from tools.file_tool import (
     read_file,
     read_file_range,
     get_token_count,
+    reset_tool_context,
+    set_tool_context,
 )
 
 
@@ -89,7 +91,7 @@ Output ONLY the JSON. No extra text before or after it."""
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-def run_rca(event: ErrorEvent, knowledge_id: str) -> RCAResult:
+def run_rca(event: ErrorEvent, knowledge_id: str, repo_dir: str = "clone") -> RCAResult:
     """
     Takes an ErrorEvent and knowledge_id, returns RCAResult.
     knowledge_id is the Neo4j graph ID produced by the ingestion pipeline.
@@ -116,9 +118,13 @@ Investigate this bug and return your RCAResult JSON.
 """
 
     try:
-        result = agent.invoke({
-            "messages": [HumanMessage(content=user_message)]
-        })
+        repo_token, knowledge_token = set_tool_context(repo_dir, knowledge_id)
+        try:
+            result = agent.invoke({
+                "messages": [HumanMessage(content=user_message)]
+            })
+        finally:
+            reset_tool_context(repo_token, knowledge_token)
 
         last_message = result["messages"][-1].content
 

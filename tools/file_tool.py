@@ -1,9 +1,10 @@
 """
 Reads and writes source code files from the cloned repo on disk.
-knowledge_id is read from the environment — agents don't need to pass it.
+The active repo and knowledge_id are set by the agent before tool calls.
 """
 
 import os
+from contextvars import ContextVar
 from langchain_core.tools import tool
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import tiktoken
@@ -11,6 +12,8 @@ from config import get_neo4j_driver
 
 CLONE_DIR   = os.getenv("CLONE_DIR", "clone")
 TOKEN_LIMIT = 3000
+_ACTIVE_REPO_DIR = ContextVar("active_repo_dir", default=CLONE_DIR)
+_ACTIVE_KNOWLEDGE_ID = ContextVar("active_knowledge_id", default="")
 
 enc = tiktoken.encoding_for_model("gpt-4o-mini")
 
@@ -24,12 +27,23 @@ fallback_splitter = RecursiveCharacterTextSplitter(
 def count_tokens(text: str) -> int:
     return len(enc.encode(text))
 
+def set_tool_context(repo_dir: str, knowledge_id: str):
+    repo_token = _ACTIVE_REPO_DIR.set(repo_dir)
+    knowledge_token = _ACTIVE_KNOWLEDGE_ID.set(knowledge_id)
+    return repo_token, knowledge_token
+
+def reset_tool_context(repo_token, knowledge_token):
+    _ACTIVE_KNOWLEDGE_ID.reset(knowledge_token)
+    _ACTIVE_REPO_DIR.reset(repo_token)
+
 def get_full_path(file_path: str) -> str:
-    return os.path.join(CLONE_DIR, file_path)
+    return os.path.join(_ACTIVE_REPO_DIR.get(), file_path)
 
 def get_function_boundaries(file_path: str) -> list:
-    """Fetches function start/end lines from Neo4j. Uses KNOWLEDGE_ID from env."""
-    knowledge_id = os.getenv("KNOWLEDGE_ID", "")
+    """Fetches function start/end lines from Neo4j for the active knowledge_id."""
+    knowledge_id = _ACTIVE_KNOWLEDGE_ID.get()
+    if not knowledge_id:
+        return []
     try:
         driver = get_neo4j_driver()
         with driver.session() as session:

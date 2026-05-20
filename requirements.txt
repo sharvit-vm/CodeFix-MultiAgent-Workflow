@@ -33,3 +33,5 @@ uvicorn>=0.27.0
 # Utilities
 tiktoken>=0.6.0       # token counting for chunk splitting
 tqdm>=4.66.0          # progress bars
+PyGithub>=1.59.0
+langchain-text-splitters>=0.0.1
