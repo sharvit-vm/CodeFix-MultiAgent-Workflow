@@ -26,6 +26,8 @@ queue = EventQueue()
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
 CLONE_ROOT = os.getenv("CLONE_ROOT", "clone")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+AUTO_INGEST_ON_WEBHOOK = os.getenv("AUTO_INGEST_ON_WEBHOOK", "true").lower() == "true"
+AUTO_VECTOR_INGEST_ON_WEBHOOK = os.getenv("AUTO_VECTOR_INGEST_ON_WEBHOOK", "false").lower() == "true"
 
 
 def _knowledge_id_for_repo(event: ErrorEvent) -> str:
@@ -96,6 +98,40 @@ def _verify_signature(payload: bytes, sig_header: str) -> bool:
     return hmac.compare_digest(expected, sig_header)
 
 
+def _ingest_repo_for_rca(repo_dir: str, knowledge_id: str):
+    """
+    Build the Neo4j knowledge graph for the checked-out repo before RCA.
+    Vector ingestion is optional because the current RCA/code-fix tools use
+    Neo4j plus direct file reads, and Pinecone ingestion can be expensive.
+    """
+    if not AUTO_INGEST_ON_WEBHOOK:
+        print("[worker] AUTO_INGEST_ON_WEBHOOK=false; skipping repo ingestion")
+        return
+
+    from models import PipelineState
+    from phases.scanner import scan_repo
+    from phases.file_analysis import analyze_files
+    from phases.llm_analysis import analyze_with_llm
+    from phases.hierarchy import build_hierarchy
+    from phases.neo4j_ingest import neo4j_ingest
+
+    print(f"[worker] Ingesting repo into Neo4j; knowledge_id={knowledge_id}")
+    state = PipelineState(repo_path=repo_dir, knowledge_id=knowledge_id)
+    state = scan_repo(state)
+    state = analyze_files(state)
+    state = analyze_with_llm(state)
+    state = build_hierarchy(state)
+    state = neo4j_ingest(state)
+
+    if AUTO_VECTOR_INGEST_ON_WEBHOOK:
+        from phases.vector_ingest import vector_ingest
+
+        print(f"[worker] Ingesting repo into Pinecone; knowledge_id={knowledge_id}")
+        state = vector_ingest(state)
+
+    print(f"[worker] Repo ingestion ready; files={len(state.files)}, knowledge_id={knowledge_id}")
+
+
 async def _run_rca_and_fix(event: ErrorEvent):
     try:
         from agents.rca import run_rca
@@ -106,6 +142,8 @@ async def _run_rca_and_fix(event: ErrorEvent):
         print(f"[worker] Syncing repo for {event.repo_full_name}")
         repo_dir = _ensure_repo_checkout(event)
         print(f"[worker] Repo ready at {repo_dir}; knowledge_id={knowledge_id}")
+
+        _ingest_repo_for_rca(repo_dir, knowledge_id)
 
         print(f"[worker] Running RCA for event {event.id} ({event.error_type})")
 

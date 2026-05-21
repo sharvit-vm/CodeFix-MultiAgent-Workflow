@@ -143,6 +143,8 @@ MAX_CHUNK_TOKENS=800
 MAX_HIERARCHY_LEVELS=8
 CACHE_DIR=cache
 CLONE_ROOT=clone
+AUTO_INGEST_ON_WEBHOOK=true
+AUTO_VECTOR_INGEST_ON_WEBHOOK=false
 ```
 
 ### Required Variables
@@ -170,6 +172,8 @@ Optional variables:
 - `MAX_CHUNK_TOKENS`: Default is `800`.
 - `MAX_HIERARCHY_LEVELS`: Default is `8`.
 - `ANTHROPIC_API_KEY`: Present in config for future/provider compatibility, but the current code path uses OpenAI.
+- `AUTO_INGEST_ON_WEBHOOK`: Runs scanner, file analysis, LLM summaries, hierarchy, and Neo4j ingestion before RCA. Default is `true`.
+- `AUTO_VECTOR_INGEST_ON_WEBHOOK`: Also uploads source chunks to Pinecone during webhook processing. Default is `false` because RCA currently uses Neo4j and direct file reads.
 
 ## 5. Prepare Neo4j
 
@@ -284,6 +288,8 @@ The Render config also pins:
 ```env
 PYTHON_VERSION=3.11.11
 ```
+
+`AUTO_INGEST_ON_WEBHOOK` is enabled in `render.yaml`, so a fresh Render service can build the Neo4j graph for the target repository before RCA. `AUTO_VECTOR_INGEST_ON_WEBHOOK` is disabled by default to keep webhook runs faster.
 
 After deployment, Render gives you a public URL like:
 

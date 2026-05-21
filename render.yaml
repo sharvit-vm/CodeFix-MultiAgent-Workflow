@@ -38,3 +38,7 @@ services:
         value: cache
       - key: CLONE_ROOT
         value: clone
+      - key: AUTO_INGEST_ON_WEBHOOK
+        value: "true"
+      - key: AUTO_VECTOR_INGEST_ON_WEBHOOK
+        value: "false"
