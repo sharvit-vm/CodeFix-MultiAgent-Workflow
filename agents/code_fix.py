@@ -87,6 +87,9 @@ def _prepare_fix_branch(event_id: str, repo_dir: str) -> str:
 
 
 def _commit_and_push(branch_name: str, commit_msg: str, repo_dir: str, repo_url: str) -> list:
+    _git(["config", "user.name", "CodeFix Bot"], cwd=repo_dir)
+    _git(["config", "user.email", "codefix-bot@users.noreply.github.com"], cwd=repo_dir)
+
     _git(["add", "-A"], cwd=repo_dir)
     _, diff_out, _ = _git(["diff", "--cached", "--name-only"], cwd=repo_dir)
     changed_files = [f for f in diff_out.splitlines() if f]
@@ -94,7 +97,10 @@ def _commit_and_push(branch_name: str, commit_msg: str, repo_dir: str, repo_url:
     if not changed_files:
         raise RuntimeError("No files changed — fix was not applied")
 
-    _git(["commit", "-m", commit_msg], cwd=repo_dir)
+    rc, _, err = _git(["commit", "-m", commit_msg], cwd=repo_dir)
+    if rc != 0:
+        raise RuntimeError(f"Commit failed: {err}")
+
     push_target = _repo_url_with_token(repo_url)
     rc, _, err = _git(["push", push_target, branch_name], cwd=repo_dir)
     if rc != 0:
