@@ -20,6 +20,7 @@ import os
 import json
 import subprocess
 from typing import List, Optional
+from urllib.parse import urlparse, urlunparse
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 from langchain.agents import create_agent
@@ -57,7 +58,22 @@ def _git(args: list, cwd: str) -> tuple:
         capture_output=True,
         text=True,
     )
-    return result.returncode, result.stdout.strip(), result.stderr.strip()
+    stdout = result.stdout.strip()
+    stderr = result.stderr.strip()
+    if GITHUB_TOKEN:
+        stdout = stdout.replace(GITHUB_TOKEN, "***")
+        stderr = stderr.replace(GITHUB_TOKEN, "***")
+    return result.returncode, stdout, stderr
+
+
+def _repo_url_with_token(repo_url: str) -> str:
+    if not GITHUB_TOKEN or not repo_url.startswith("https://"):
+        return repo_url
+    parsed = urlparse(repo_url)
+    if "github.com" not in parsed.netloc:
+        return repo_url
+    netloc = f"x-access-token:{GITHUB_TOKEN}@{parsed.netloc}"
+    return urlunparse(parsed._replace(netloc=netloc))
 
 
 def _prepare_fix_branch(event_id: str, repo_dir: str) -> str:
@@ -70,7 +86,7 @@ def _prepare_fix_branch(event_id: str, repo_dir: str) -> str:
     return branch_name
 
 
-def _commit_and_push(branch_name: str, commit_msg: str, repo_dir: str) -> list:
+def _commit_and_push(branch_name: str, commit_msg: str, repo_dir: str, repo_url: str) -> list:
     _git(["add", "-A"], cwd=repo_dir)
     _, diff_out, _ = _git(["diff", "--cached", "--name-only"], cwd=repo_dir)
     changed_files = [f for f in diff_out.splitlines() if f]
@@ -79,7 +95,8 @@ def _commit_and_push(branch_name: str, commit_msg: str, repo_dir: str) -> list:
         raise RuntimeError("No files changed — fix was not applied")
 
     _git(["commit", "-m", commit_msg], cwd=repo_dir)
-    rc, _, err = _git(["push", "origin", branch_name], cwd=repo_dir)
+    push_target = _repo_url_with_token(repo_url)
+    rc, _, err = _git(["push", push_target, branch_name], cwd=repo_dir)
     if rc != 0:
         raise RuntimeError(f"Push failed: {err}")
 
@@ -241,7 +258,7 @@ Apply the fix and return your JSON summary.
             f"Root cause: {rca.root_cause}\n"
             f"Confidence: {rca.confidence}"
         )
-        changed_files = _commit_and_push(branch_name, commit_msg, repo_dir)
+        changed_files = _commit_and_push(branch_name, commit_msg, repo_dir, event.repo_url)
     except Exception as e:
         return CodeFixResult(
             success=False,
